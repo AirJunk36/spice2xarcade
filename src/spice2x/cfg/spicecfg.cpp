@@ -1,4 +1,5 @@
 #include "spicecfg.h"
+#include "bio2/device.h"
 
 #include <memory>
 
@@ -38,6 +39,7 @@ int spicecfg_run(const std::vector<std::string> &sextet_devices) {
     cfg::CONFIGURATOR_STANDALONE = true;
     cfg::Configurator configurator;
     configurator.run();
+    bio2::stop();
 
     // success
     return 0;

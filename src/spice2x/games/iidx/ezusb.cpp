@@ -221,10 +221,7 @@ int games::iidx::EZUSBHandle::device_io(DWORD dwIoControlCode, LPVOID lpInBuffer
                         case 5: // 16seg
                         {
                             // write to status
-                            IIDX_LED_TICKER_LOCK.lock();
-                            if (!IIDXIO_LED_TICKER_READONLY)
-                                memcpy(IIDXIO_LED_TICKER, (char *) lpOutBuffer + 2, 9);
-                            IIDX_LED_TICKER_LOCK.unlock();
+                            set_16seg(static_cast<const char *>(lpOutBuffer) + 2);
 
                             break;
                         }

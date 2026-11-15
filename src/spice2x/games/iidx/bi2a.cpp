@@ -44,10 +44,7 @@ bool games::iidx::IIDXFMSerialHandle::FMSerialDevice::parse_msg(
             if (msg_in->cmd.data_size == 0x30) {
 
                 // LED TICKER
-                IIDX_LED_TICKER_LOCK.lock();
-                if (!IIDXIO_LED_TICKER_READONLY)
-                    memcpy(IIDXIO_LED_TICKER, &msg_in->cmd.raw[0x17], 9);
-                IIDX_LED_TICKER_LOCK.unlock();
+                set_16seg(reinterpret_cast<const char *>(&msg_in->cmd.raw[0x17]));
 
                 // NEON LIGHT
                 bool neon_light = msg_in->cmd.raw[0x24] != 0;

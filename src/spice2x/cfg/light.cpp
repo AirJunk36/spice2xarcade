@@ -1,4 +1,5 @@
 #include "light.h"
+#include "bio2/device.h"
 
 #include <utility>
 
@@ -10,6 +11,11 @@
 #include "util/logging.h"
 
 std::string Light::getDisplayString(rawinput::RawInputManager* manager) {
+    if (bio2::is_device(this->getDeviceIdentifier())) {
+        const auto index = this->getIndex();
+        return index < bio2::light_names().size()
+            ? "BIO2 / " + bio2::light_names()[index] : "Invalid BIO2 output";
+    }
 
     // get index string
     std::string index_string = fmt::format("{:#x}", index);

@@ -8,6 +8,7 @@
 #include "avs/game.h"
 #include "cfg/config.h"
 #include "games/io.h"
+#include "games/iidx/legacy_subscreen.h"
 #include "rawinput/rawinput.h"
 #include "games/sdvx/sdvx.h"
 #include "util/logging.h"
@@ -518,6 +519,7 @@ uint16_t eamuse_get_keypad_state(size_t unit) {
     KEYPAD_STATE[unit] |= KEYPAD_STATE_OVERRIDES_BT5[unit];
     KEYPAD_STATE[unit] |= KEYPAD_STATE_OVERRIDES_READER[unit];
     KEYPAD_STATE[unit] |= KEYPAD_STATE_OVERRIDES_OVERLAY[unit];
+    KEYPAD_STATE[unit] |= games::iidx::legacy_subscreen_keypad(unit);
 
     // bt5api
     if (BT5API_ENABLED) {

@@ -1,4 +1,5 @@
 #include "analog.h"
+#include "bio2/device.h"
 
 #include <numeric>
 
@@ -10,6 +11,11 @@
 #include "util/utils.h"
 
 std::string Analog::getDisplayString(rawinput::RawInputManager *manager) {
+    if (bio2::is_device(this->getDeviceIdentifier())) {
+        return this->getIndex() < bio2::analog_names().size()
+            ? "BIO2 / " + bio2::analog_names()[this->getIndex()]
+            : "Invalid BIO2 analog";
+    }
 
     // device must be existing
     if (this->device_identifier.empty()) {

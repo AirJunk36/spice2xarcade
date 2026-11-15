@@ -723,6 +723,75 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
         .picker = OptionPickerType::AsioDriver,
         .quick_setting_category = "Game",
     };
+    c[launcher::Options::IIDXBI2XNative] = {
+        .title = "Native IIDX I/O Hardware",
+        .name = "bi2x",
+        .desc = "Connect directly to the selected BI2X, BI2A or IO2 board. Configure routes in BIO2 Buttons and BIO2 Lights.",
+        .type = OptionType::Bool,
+        .game_name = "Beatmania IIDX",
+        .category = "Game Options",
+    };
+    c[launcher::Options::IIDXBI2XPort] = {
+        .title = "Native I/O Port / USB Path",
+        .name = "bi2xport",
+        .desc = "BI2X/BI2A serial port (COM5), or IO2 USB device path. Empty: auto-detect the selected board.",
+        .type = OptionType::Text,
+        .game_name = "Beatmania IIDX",
+        .category = "Game Options",
+    };
+    c[launcher::Options::IIDXBI2XModules] = {
+        .title = "BIO2 BI2X Runtime Directory",
+        .name = "bi2xmodules",
+        .desc = "Directory containing your BI2X runtime modules or libaio-iob DLLs. Empty: executable directory and current directory.",
+        .type = OptionType::Text,
+        .game_name = "Beatmania IIDX",
+        .category = "Game Options",
+        .picker = OptionPickerType::DirectoryPath,
+    };
+    c[launcher::Options::IIDXBI2XSkipReset] = {
+        .title = "BIO2 BI2X Skip Reset",
+        .name = "bi2xskipreset",
+        .desc = "Skip the normal serial board reset when connecting to BI2X or BI2A.",
+        .type = OptionType::Bool,
+        .game_name = "Beatmania IIDX",
+        .category = "Advanced Game Options",
+    };
+    c[launcher::Options::IIDXBI2XTapeMap] = {
+        .title = "BIO2 BI2X Tape Routes",
+        .name = "bi2xtapemap",
+        .desc = "Seventeen destination indices, comma-separated. Configure using BIO2 Lights.",
+        .type = OptionType::Text,
+        .hidden = true,
+        .game_name = "Beatmania IIDX",
+        .category = "Advanced Game Options",
+    };
+    c[launcher::Options::IIDXBIO2Board] = {
+        .title = "Native I/O Board",
+        .name = "bio2board",
+        .desc = "Physical board, independent of the game's I/O interface. Empty: bi2x. Values: bi2x, bi2a, io2.",
+        .type = OptionType::Enum,
+        .game_name = "Beatmania IIDX",
+        .category = "Game Options",
+        .elements = {{"bi2x", "BI2X / Lightning Model"}, {"bi2a", "BI2A"},
+            {"io2", "IO2 / EZUSB FX2"}},
+    };
+    c[launcher::Options::IIDXLegacySubscreen] = {
+        .title = "IIDX Legacy Cabinet Subscreen",
+        .name = "iidxlegacysub",
+        .desc = "Show dual keypads, LED ticker and five effect sliders on a separate monitor for older IIDX games.",
+        .type = OptionType::Bool,
+        .game_name = "Beatmania IIDX",
+        .category = "Game Options",
+    };
+    c[launcher::Options::IIDXLegacyMonitor] = {
+        .title = "IIDX Legacy Subscreen Monitor",
+        .name = "iidxlegacymonitor",
+        .desc = "Display device name for the legacy subscreen. Empty: first non-primary monitor.",
+        .type = OptionType::Text,
+        .game_name = "Beatmania IIDX",
+        .category = "Game Options",
+        .picker = OptionPickerType::Monitor,
+    };
     c[launcher::Options::IIDXBIO2FW] = {
         .title = "IIDX BIO2 Firmware Update",
         .name =  "iidxbio2fw",

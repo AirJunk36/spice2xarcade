@@ -76,6 +76,7 @@ namespace games::iidx {
     void write_top_neon(uint8_t top_neon);
     unsigned char get_tt(int player, bool slow);
     unsigned char get_slider(uint8_t slider);
+    void set_16seg(const char *text);
     const char* get_16seg();
     bool is_tdj_fhd();
     void apply_audio_hacks();

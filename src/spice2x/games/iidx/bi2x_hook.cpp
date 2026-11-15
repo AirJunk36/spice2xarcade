@@ -1,4 +1,5 @@
 #include "bi2x_hook.h"
+#include "bio2/device.h"
 
 #if SPICE64
 
@@ -451,6 +452,10 @@ namespace games::iidx {
                     map.data[i].b = data[i * 3 + 2];
                 }
             }
+        }
+
+        if (index < IIDX_TAPELED_TOTAL) {
+            bio2::write_tape(index, data, TAPELED_MAPPING[index].data.size());
         }
 
         if (This != custom_node) {

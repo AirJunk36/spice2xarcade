@@ -1,4 +1,5 @@
 #include "button.h"
+#include "bio2/device.h"
 
 #include "rawinput/rawinput.h"
 #include "util/logging.h"
@@ -300,6 +301,11 @@ std::string Button::getMidiNoteString() {
 }
 
 std::string Button::getDisplayString(rawinput::RawInputManager *manager) {
+    if (bio2::is_device(this->getDeviceIdentifier())) {
+        const auto index = this->getVKey();
+        return index < bio2::button_names().size()
+            ? "BIO2 / " + bio2::button_names()[index] : "Invalid BIO2 input";
+    }
     auto binding_display = this->getBindingDisplayString(manager);
     auto modifiers = this->getModifierMask();
     if (binding_display.empty() || modifiers == 0) {

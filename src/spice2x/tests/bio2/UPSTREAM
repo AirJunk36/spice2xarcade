@@ -1,0 +1,5 @@
+sim_bi2x.py: dumcatt/iidxio-bi2x, commit de0938f91646ecf211b619071a06edfc639ff3ae.
+Unlicense; see ../../external/bi2x/LICENSE.txt.
+Synthetic firmware payloads used by tests are not real firmware.
+Local simulator change: report expected CRC negotiation probes separately from post-negotiation errors.
+Local simulator change: retain output/color history to verify routing and shutdown blackout.

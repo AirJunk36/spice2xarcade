@@ -460,6 +460,7 @@ set(SOURCE_FILES ${SOURCE_FILES}
         games/iidx/bi2x_hook.cpp
         games/iidx/ezusb.cpp
         games/iidx/legacy_camera.cpp
+        games/iidx/legacy_subscreen.cpp
         games/iidx/local_camera.cpp
         games/iidx/camera.cpp
         games/iidx/mf_wrappers.cpp
@@ -709,6 +710,18 @@ set(SOURCE_FILES ${SOURCE_FILES}
         rawinput/rawinput_handles.cpp
         rawinput/midi.cpp
         rawinput/sextet.cpp
+        bio2/device.cpp
+        bio2/legacy.cpp
+        bio2/legacy_usb.cpp
+        external/bi2x/bi2x_crc.c
+        external/bi2x/bi2x_frame.c
+        external/bi2x/bi2x_link.c
+        external/bi2x/bi2x_log.c
+        external/bi2x/bi2x_lz.c
+        external/bi2x/bi2x_module.c
+        external/bi2x/bi2x_port_posix.c
+        external/bi2x/bi2x_port_win32.c
+        external/bi2x/bi2x_tdj.c
         rawinput/piuio.cpp
         rawinput/touch.cpp
         rawinput/hotplug.cpp

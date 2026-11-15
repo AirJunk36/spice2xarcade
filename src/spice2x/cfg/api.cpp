@@ -1,4 +1,5 @@
 #include "api.h"
+#include "bio2/device.h"
 
 #include <cassert>
 #include <optional>
@@ -125,6 +126,21 @@ GameAPI::Buttons::State GameAPI::Buttons::get_button_state(
             button_count++;
             if (!alternatives || alternatives->empty() ||
                 button_count - 1 >= alternatives->size()) {
+                return BUTTON_NOT_PRESSED;
+            }
+            current_button = &alternatives->at(button_count - 1);
+            continue;
+        }
+
+        if (bio2::is_device(current_button->getDeviceIdentifier())) {
+            const bool pressed = bio2::read_button(
+                current_button->getVKey(), current_button->getInvert());
+            current_button->setLastState(pressed ? BUTTON_PRESSED : BUTTON_NOT_PRESSED);
+            if (pressed) {
+                return BUTTON_PRESSED;
+            }
+            button_count++;
+            if (!alternatives || button_count > alternatives->size()) {
                 return BUTTON_NOT_PRESSED;
             }
             current_button = &alternatives->at(button_count - 1);
@@ -960,6 +976,15 @@ float GameAPI::Analogs::getState(rawinput::RawInputManager *manager, Analog &ana
         return analog.override_state;
     }
 
+    if (bio2::is_device(analog.getDeviceIdentifier())) {
+        auto value = bio2::read_analog(analog.getIndex());
+        if (analog.getInvert()) {
+            value = 1.f - value;
+        }
+        analog.setLastState(value);
+        return value;
+    }
+
     // get device
     auto &devid = analog.getDeviceIdentifier();
     auto device = manager->devices_get(devid, false); // TODO: fix to update only
@@ -1168,6 +1193,9 @@ void GameAPI::Lights::writeLight(rawinput::RawInputManager *manager, Light &ligh
 
     // get device
     auto &devid = light.getDeviceIdentifier();
+    if (bio2::is_device(devid)) {
+        bio2::write_light(light.getIndex(), light.override_enabled ? light.override_state : value);
+    }
     auto device = manager->devices_get(devid, false);
 
     // check device

@@ -1,0 +1,5 @@
+Source: https://github.com/dumcatt/iidxio-bi2x
+Commit: de0938f91646ecf211b619071a06edfc639ff3ae
+License: Unlicense (LICENSE.txt)
+Only the standalone protocol driver is included. No game DLLs or firmware modules are distributed.
+Local changes: atomic worker flags (GCC atomics / MSVC Interlocked); thread-safe, overflow-safe Win32 monotonic clock.

@@ -1,4 +1,5 @@
 #include "config.h"
+#include "bio2/device.h"
 
 #include <algorithm>
 #include <set>
@@ -201,6 +202,7 @@ namespace overlay::windows {
     }
 
     Config::~Config() {
+        bio2::test_light(-1);
     }
 
     void Config::inc_buttons_many_index(int index_max) {
@@ -523,7 +525,23 @@ namespace overlay::windows {
 
     void Config::build_controller_tab(float page_offset, ControllerPage *page_selected_new) {
         const float content_height = ImGui::GetWindowContentRegionMax().y - page_offset;
-        const float nav_width = overlay::apply_scaling(99);
+        const bool native_bio2 = this->games_selected_name == "Beatmania IIDX";
+        const float nav_width = overlay::apply_scaling(native_bio2 ? 144 : 99);
+        auto page_groups = CONTROLLER_PAGE_GROUPS;
+        if (native_bio2) {
+            for (auto &group : page_groups) {
+                if (group.second == ControllerPage::CONTROLLER_PAGE_BUTTONS) {
+                    group.first = "BIO2 Buttons";
+                } else if (group.second == ControllerPage::CONTROLLER_PAGE_LIGHTS) {
+                    group.first = "BIO2 Lights";
+                }
+            }
+        }
+        if (std::none_of(page_groups.begin(), page_groups.end(), [this](const auto &group) {
+                return this->controller_page_label == group.first;
+            })) {
+            this->controller_page_label = page_groups.front().first;
+        }
 
         // hide sub-pages that expose no controls for the selected game
         auto analogs = games::get_analogs(this->games_selected_name);
@@ -543,13 +561,13 @@ namespace overlay::windows {
 
         // default to the first page on first display
         if (this->controller_page_label.empty()) {
-            this->controller_page_label = CONTROLLER_PAGE_GROUPS.front().first;
+            this->controller_page_label = page_groups.front().first;
         }
 
         // if the selected page is no longer available, fall back to the first one
-        for (const auto &group : CONTROLLER_PAGE_GROUPS) {
+        for (const auto &group : page_groups) {
             if (this->controller_page_label == group.first && page_hidden(group.second)) {
-                this->controller_page_label = CONTROLLER_PAGE_GROUPS.front().first;
+                this->controller_page_label = page_groups.front().first;
                 break;
             }
         }
@@ -569,7 +587,7 @@ namespace overlay::windows {
             }
         };
 
-        for (const auto &group : CONTROLLER_PAGE_GROUPS) {
+        for (const auto &group : page_groups) {
             if (page_hidden(group.second)) {
                 continue;
             }
@@ -587,7 +605,7 @@ namespace overlay::windows {
         // breathing room at the top of the content area
         ImGui::Dummy(ImVec2(0.0f, overlay::apply_scaling(4)));
 
-        for (const auto &group : CONTROLLER_PAGE_GROUPS) {
+        for (const auto &group : page_groups) {
             if (this->controller_page_label != group.first || page_hidden(group.second)) {
                 continue;
             }
@@ -597,6 +615,11 @@ namespace overlay::windows {
 
             switch (group.second) {
                 case ControllerPage::CONTROLLER_PAGE_BUTTONS: {
+                    if (native_bio2) {
+                        build_bio2_connection();
+                        build_bio2_buttons();
+                        break;
+                    }
 
                     // help text for binding buttons, if the game has one
                     const auto help_text = games::get_buttons_help(this->games_selected_name);
@@ -661,7 +684,12 @@ namespace overlay::windows {
                     break;
                 }
                 case ControllerPage::CONTROLLER_PAGE_LIGHTS: {
-                    this->build_lights("Game", lights);
+                    if (native_bio2) {
+                        build_bio2_connection();
+                        build_bio2_lights();
+                    } else {
+                        this->build_lights("Game", lights);
+                    }
                     break;
                 }
                 case ControllerPage::CONTROLLER_PAGE_PRESETS: {
@@ -854,6 +882,318 @@ namespace overlay::windows {
             "the PIN.");
         ImGui::Unindent(INDENT);
         ImGui::TextUnformatted("");
+    }
+
+    static bio2::Board bio2_config_board(const std::string &game) {
+        bio2::Board board = bio2::Board::BI2X;
+        bio2::parse_board(games::get_options(game)->at(
+            launcher::Options::IIDXBIO2Board).value_text(), board);
+        return board;
+    }
+
+    static bool bio2_channel_combo(const char *id, int *channel,
+            const std::vector<std::string> &names, bool allow_unbound = true,
+            bio2::Board board = bio2::Board::BI2X,
+            bool (*available)(bio2::Board, size_t) = nullptr) {
+        const char *preview = *channel >= 0 && *channel < static_cast<int>(names.size())
+            ? names[*channel].c_str() : (*channel == -2 ? "Existing binding" : "Unbound");
+        if (*channel >= 0 && available != nullptr && !available(board, *channel)) {
+            preview = "Unavailable on this board";
+        }
+        bool changed = false;
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::BeginCombo(id, preview)) {
+            if (allow_unbound && ImGui::Selectable("Unbound", *channel == -1)) {
+                *channel = -1;
+                changed = true;
+            }
+            for (size_t i = 0; i < names.size(); i++) {
+                if (available != nullptr && !available(board, i)) {
+                    continue;
+                }
+                if (ImGui::Selectable(names[i].c_str(), *channel == static_cast<int>(i))) {
+                    *channel = static_cast<int>(i);
+                    changed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        return changed;
+    }
+
+    void Config::build_bio2_connection() {
+        auto &options = *games::get_options(this->games_selected_name);
+        const auto &game = games_list[games_selected];
+        auto &enabled_option = options.at(launcher::Options::IIDXBI2XNative);
+        bool enabled = enabled_option.value_bool();
+        if (ImGui::Checkbox("Native I/O hardware", &enabled)) {
+            enabled_option.value = enabled ? "1" : "";
+            ::Config::getInstance().updateBinding(game, enabled_option);
+            if (!enabled) {
+                bio2::stop();
+            }
+        }
+        ImGui::SameLine();
+        const auto state = bio2::status();
+        ImGui::TextUnformatted(state.online ? "Online" :
+            (state.started ? "Connecting / reconnecting..." : "Disconnected"));
+        auto &board_option = options.at(launcher::Options::IIDXBIO2Board);
+        auto board = bio2_config_board(this->games_selected_name);
+        if (ImGui::BeginCombo("Physical board", bio2::board_name(board))) {
+            for (const auto *name : {"bi2x", "bi2a", "io2"}) {
+                bio2::Board item;
+                bio2::parse_board(name, item);
+                if (ImGui::Selectable(bio2::board_name(item), board == item)) {
+                    bio2::stop();
+                    board = item;
+                    board_option.value = name;
+                    ::Config::getInstance().updateBinding(game, board_option);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::CollapsingHeader("I/O connection")) {
+            auto &port = options.at(launcher::Options::IIDXBI2XPort);
+            auto &directory = options.at(launcher::Options::IIDXBI2XModules);
+            ImGui::InputText("Port / USB path (empty = auto)", &port.value);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                ::Config::getInstance().updateBinding(game, port);
+            }
+            if (board == bio2::Board::BI2X) {
+                ImGui::InputText("BI2X runtime directory", &directory.value);
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    ::Config::getInstance().updateBinding(game, directory);
+                }
+            }
+            auto &reset = options.at(launcher::Options::IIDXBI2XSkipReset);
+            bool skip = reset.value_bool();
+            if (board != bio2::Board::IO2 && ImGui::Checkbox("Skip board reset", &skip)) {
+                reset.value = skip ? "1" : "";
+                ::Config::getInstance().updateBinding(game, reset);
+            }
+            if (board == bio2::Board::BI2X) {
+                ImGui::TextWrapped("Runtime files: bi2x_tdj.bin and bi2x_sci.bin, or your "
+                    "libaio-iob2_video.dll and libaio-iob.dll. The DLLs are read as data.");
+            } else if (board == bio2::Board::IO2) {
+                ImGui::TextWrapped("Requires CyUSB3 and IIDX FX2 firmware already loaded on the "
+                    "board. Select the real USB device path, not the game's emulated Ezusb-0.");
+            } else {
+                ImGui::TextWrapped("Requires installed IIDX BI2A firmware. "
+                    "Empty port detects USB 1CCF:804C or 1CCF:8040.");
+            }
+        }
+        ImGui::BeginDisabled(!enabled);
+        if (ImGui::Button(state.started ? "Reconnect I/O" : "Connect I/O")) {
+            bio2::configure_tape_routes(options.at(launcher::Options::IIDXBI2XTapeMap).value_text());
+            bio2::start(options.at(launcher::Options::IIDXBI2XPort).value_text(),
+                options.at(launcher::Options::IIDXBI2XModules).value_text(),
+                options.at(launcher::Options::IIDXBI2XSkipReset).value_bool(), board);
+        }
+        ImGui::EndDisabled();
+        if (!state.online && !state.message.empty()) {
+            ImGui::TextWrapped("%s", state.message.c_str());
+        }
+        auto &subscreen = options.at(launcher::Options::IIDXLegacySubscreen);
+        bool show_subscreen = subscreen.value_bool();
+        if (ImGui::Checkbox("Legacy subscreen (next game launch)", &show_subscreen)) {
+            subscreen.value = show_subscreen ? "1" : "";
+            ::Config::getInstance().updateBinding(game, subscreen);
+        }
+        if (show_subscreen) {
+            auto &monitor = options.at(launcher::Options::IIDXLegacyMonitor);
+            ImGui::InputText("Subscreen monitor (empty = secondary)", &monitor.value);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                ::Config::getInstance().updateBinding(game, monitor);
+            }
+        }
+        ImGui::Separator();
+    }
+
+    void Config::build_bio2_buttons() {
+        const auto board = bio2_config_board(this->games_selected_name);
+        ImGui::Text("BIO2 Buttons - %s", bio2::board_name(board));
+        ImGui::TextWrapped("Map a physical BIO2 input to each game input. "
+            "Changing a row replaces its previous bindings.");
+        auto &buttons = *games::get_buttons(this->games_selected_name);
+        const auto &game = games_list[games_selected];
+        const auto &names = bio2::button_names();
+        auto bind = [&](Button &button, int channel) {
+            for (int i = static_cast<int>(button.getAlternatives().size()) - 1; i >= 0; i--) {
+                ::Config::getInstance().updateBinding(game, Button(button.getName()), i);
+            }
+            button = Button(button.getName());
+            if (channel >= 0) {
+                button.setDeviceIdentifier(bio2::DEVICE_ID);
+                button.setVKey(static_cast<uint16_t>(channel));
+            }
+            ::Config::getInstance().updateBinding(game, button, -1);
+        };
+        if (ImGui::Button("Fill unbound inputs")) {
+            for (auto &button : buttons) {
+                const auto found = std::find(names.begin(), names.end(), button.getName());
+                if (!button.isSet() && found != names.end()
+                        && bio2::button_available(board, found - names.begin())) {
+                    bind(button, static_cast<int>(found - names.begin()));
+                }
+            }
+            auto &analogs = *games::get_analogs(this->games_selected_name);
+            for (size_t i = 0; i < bio2::analog_names().size() && i < analogs.size(); i++) {
+                if (!analogs[i].isSet() && bio2::analog_available(board, i)) {
+                    analogs[i].setDeviceIdentifier(bio2::DEVICE_ID);
+                    analogs[i].setIndex(static_cast<uint16_t>(i));
+                    ::Config::getInstance().updateBinding(game, analogs[i]);
+                }
+            }
+        }
+        if (ImGui::BeginTable("BIO2Inputs", 3, ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("Game input");
+            ImGui::TableSetupColumn("Physical BIO2 input");
+            ImGui::TableSetupColumn("Physical state");
+            ImGui::TableHeadersRow();
+            for (size_t i = 0; i < buttons.size(); i++) {
+                auto &button = buttons[i];
+                int channel = bio2::is_device(button.getDeviceIdentifier())
+                    ? button.getVKey() : (button.isSet() ? -2 : -1);
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(button.getName().c_str());
+                ImGui::TableNextColumn();
+                if (bio2_channel_combo("##input", &channel, names, true,
+                        board, bio2::button_available)) {
+                    bind(button, channel);
+                }
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(channel >= 0 && bio2::read_button(channel) ? "ON" : "OFF");
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        ImGui::SeparatorText("BIO2 turntables and effect sliders");
+        auto &analogs = *games::get_analogs(this->games_selected_name);
+        const auto &analog_names = bio2::analog_names();
+        for (size_t i = 0; i < analog_names.size() && i < analogs.size(); i++) {
+            auto &analog = analogs[i];
+            int channel = bio2::is_device(analog.getDeviceIdentifier())
+                ? analog.getIndex() : (analog.isSet() ? -2 : -1);
+            ImGui::PushID(1000 + static_cast<int>(i));
+            ImGui::TextUnformatted(analog.getName().c_str());
+            if (bio2_channel_combo("##turntable", &channel, analog_names, true,
+                    board, bio2::analog_available)) {
+                analog.clearBindings();
+                if (channel >= 0) {
+                    analog.setDeviceIdentifier(bio2::DEVICE_ID);
+                    analog.setIndex(static_cast<uint16_t>(channel));
+                }
+                ::Config::getInstance().updateBinding(game, analog);
+            }
+            bool invert = analog.getInvert();
+            if (ImGui::Checkbox("Invert", &invert)) {
+                analog.setInvert(invert);
+                ::Config::getInstance().updateBinding(game, analog);
+            }
+            ImGui::SameLine();
+            ImGui::Text("Position: %.3f", channel >= 0 ? bio2::read_analog(channel) : 0.f);
+            ImGui::PopID();
+        }
+    }
+
+    void Config::build_bio2_lights() {
+        const auto board = bio2_config_board(this->games_selected_name);
+        ImGui::Text("BIO2 Lights - %s", bio2::board_name(board));
+        ImGui::TextWrapped("Route each game light to a BIO2 output. "
+            "RGB channels can be mapped separately. Hold Test to preview an output.");
+        auto &lights = *games::get_lights(this->games_selected_name);
+        const auto &game = games_list[games_selected];
+        const auto &names = bio2::light_names();
+        auto bind = [&](Light &light, int channel) {
+            if (bio2::is_device(light.getDeviceIdentifier())) {
+                bio2::write_light(light.getIndex(), 0.f);
+            }
+            for (int i = static_cast<int>(light.getAlternatives().size()) - 1; i >= 0; i--) {
+                const auto &alt = light.getAlternatives()[i];
+                if (bio2::is_device(alt.getDeviceIdentifier())) {
+                    bio2::write_light(alt.getIndex(), 0.f);
+                }
+                ::Config::getInstance().updateBinding(game, Light(light.getName()), i);
+            }
+            light = Light(light.getName(), light.getCategory());
+            if (channel >= 0) {
+                light.setDeviceIdentifier(bio2::DEVICE_ID);
+                light.setIndex(static_cast<unsigned int>(channel));
+            }
+            ::Config::getInstance().updateBinding(game, light, -1);
+        };
+        if (ImGui::Button("Fill unbound outputs")) {
+            for (auto &light : lights) {
+                const auto found = std::find(names.begin(), names.end(), light.getName());
+                if (!light.isSet() && found != names.end()
+                        && bio2::light_available(board, found - names.begin())) {
+                    bind(light, static_cast<int>(found - names.begin()));
+                }
+            }
+        }
+        int tested = -1;
+        if (ImGui::BeginTable("BIO2Outputs", 3, ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("Game light");
+            ImGui::TableSetupColumn("Physical BIO2 output");
+            ImGui::TableSetupColumn("Test / value");
+            ImGui::TableHeadersRow();
+            for (size_t i = 0; i < lights.size(); i++) {
+                auto &light = lights[i];
+                int channel = bio2::is_device(light.getDeviceIdentifier())
+                    ? static_cast<int>(light.getIndex()) : (light.isSet() ? -2 : -1);
+                ImGui::PushID(static_cast<int>(i));
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(light.getName().c_str());
+                ImGui::TableNextColumn();
+                if (bio2_channel_combo("##output", &channel, names, true,
+                        board, bio2::light_available)) {
+                    bind(light, channel);
+                }
+                ImGui::TableNextColumn();
+                ImGui::BeginDisabled(channel < 0 || !bio2::status().online
+                    || !bio2::light_available(board, channel));
+                ImGui::Button("Test");
+                if (ImGui::IsItemActive()) {
+                    tested = channel;
+                }
+                ImGui::EndDisabled();
+                ImGui::SameLine();
+                ImGui::Text("%.2f", channel >= 0 ? bio2::read_light(channel) : 0.f);
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+        }
+        bio2::test_light(tested);
+        if (board == bio2::Board::BI2X && ImGui::CollapsingHeader("Full RGB tape routing")) {
+            auto &option = games::get_options(this->games_selected_name)->at(
+                launcher::Options::IIDXBI2XTapeMap);
+            if (!bio2::configure_tape_routes(option.value_text())) {
+                ImGui::TextWrapped("Invalid saved tape routes. Clear bi2xtapemap in Options.");
+            }
+            ImGui::TextWrapped("Routes apply when the game produces full tape RGB data. "
+                "For older games, use the light routes above. Different strip lengths are scaled.");
+            const auto &tapes = bio2::tape_names();
+            for (size_t i = 0; i < tapes.size(); i++) {
+                ImGui::PushID(2000 + static_cast<int>(i));
+                ImGui::TextUnformatted(tapes[i].c_str());
+                int target = static_cast<int>(bio2::tape_destination(i));
+                if (bio2_channel_combo("##tape", &target, tapes, false)) {
+                    bio2::set_tape_route(i, target);
+                    option.value.clear();
+                    for (size_t source = 0; source < tapes.size(); source++) {
+                        if (source != 0) {
+                            option.value += ',';
+                        }
+                        option.value += std::to_string(bio2::tape_destination(source));
+                    }
+                    ::Config::getInstance().updateBinding(game, option);
+                }
+                ImGui::PopID();
+            }
+        }
     }
 
     void Config::build_buttons(const std::string &name, std::vector<Button> *buttons, int min, int max) {
@@ -3017,6 +3357,7 @@ namespace overlay::windows {
     }
 
     void Config::stop_lights_test() {
+        bio2::test_light(-1);
         if (!lights_testing) {
             return;
         }
@@ -3040,6 +3381,9 @@ namespace overlay::windows {
 
     void Config::update() {
         Window::update();
+        if (!this->active) {
+            bio2::test_light(-1);
+        }
         if (lights_testing && !this->active) {
             stop_lights_test();
         }

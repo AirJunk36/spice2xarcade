@@ -59,3 +59,15 @@ jobs:
         run: >
           cmake --build cmake-build-msvc-${{ matrix.arch }}
           --config Release --target ${{ matrix.target }}
+
+  native-io-tests:
+    name: Native cabinet I/O protocol tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Configure
+        run: cmake -S src/spice2x/tests/bio2 -B build-bio2-tests -DCMAKE_BUILD_TYPE=Release
+      - name: Compile
+        run: cmake --build build-bio2-tests --parallel 2
+      - name: Test
+        run: ctest --test-dir build-bio2-tests --output-on-failure --timeout 45 --parallel 2

@@ -1,4 +1,6 @@
 #include "iidx.h"
+#include "bio2/device.h"
+#include "legacy_subscreen.h"
 
 #include "acioemu/handle.h"
 #include "avs/core.h"
@@ -465,6 +467,27 @@ namespace games::iidx {
     void IIDXGame::pre_attach() {
         Game::pre_attach();
         auto options = games::get_options(eamuse_get_game());
+        if (options->at(launcher::Options::IIDXBI2XNative).value_bool()) {
+            if (!bio2::configure_tape_routes(
+                    options->at(launcher::Options::IIDXBI2XTapeMap).value_text())) {
+                log_warning("bio2", "Invalid tape routing configuration; using identity routes");
+                bio2::configure_tape_routes("");
+            }
+            bio2::Board board;
+            if (bio2::parse_board(options->at(launcher::Options::IIDXBIO2Board).value_text(), board)) {
+                log_info("bio2", "Starting native {} hardware", bio2::board_name(board));
+                bio2::start(
+                    options->at(launcher::Options::IIDXBI2XPort).value_text(),
+                    options->at(launcher::Options::IIDXBI2XModules).value_text(),
+                    options->at(launcher::Options::IIDXBI2XSkipReset).value_bool(), board);
+            } else {
+                log_warning("bio2", "Invalid bio2board value; native hardware disabled");
+            }
+        }
+
+        if (options->at(launcher::Options::IIDXLegacySubscreen).value_bool()) {
+            legacy_subscreen_start(options->at(launcher::Options::IIDXLegacyMonitor).value_text());
+        }
 
         // environment variables must be set before the DLL is loaded as the VC++ runtime copies all
         // environment variables at startup
@@ -555,6 +578,8 @@ namespace games::iidx {
     }
 
     void IIDXGame::detach() {
+        legacy_subscreen_stop();
+        bio2::stop();
         Game::detach();
 
         devicehook_dispose();
@@ -809,6 +834,11 @@ namespace games::iidx {
         if (slider > 4)
             return 0;
 
+        const int panel_value = legacy_subscreen_slider(slider);
+        if (panel_value >= 0) {
+            return static_cast<unsigned char>(panel_value);
+        }
+
         // get analog
         auto &analogs = get_analogs();
         Analog *analog = nullptr;
@@ -843,6 +873,14 @@ namespace games::iidx {
 
     const char* get_16seg() {
         return IIDXIO_LED_TICKER;
+    }
+
+    void set_16seg(const char *text) {
+        std::lock_guard<std::mutex> lock(IIDX_LED_TICKER_LOCK);
+        if (!IIDXIO_LED_TICKER_READONLY) {
+            memcpy(IIDXIO_LED_TICKER, text, 9);
+        }
+        bio2::write_ticker(IIDXIO_LED_TICKER);
     }
 
     bool is_tdj_fhd() {

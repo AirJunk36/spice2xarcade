@@ -162,6 +162,9 @@ namespace overlay::windows {
         std::pair<std::string, int> analog_as_button_warning_show_next_frame = { "", 0 };
 
         void build_buttons(const std::string &name, std::vector<Button> *buttons, int min = 0, int max = -1);
+        void build_bio2_connection();
+        void build_bio2_buttons();
+        void build_bio2_lights();
         void build_button(
             const std::string &name,
             Button &primary_button,
