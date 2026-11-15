@@ -1,5 +1,12 @@
 FROM ghcr.io/archlinux/archlinux:base-devel
 
+# Rosetta/QEMU user-mode emulation cannot install pacman's syscall filter.
+# The surrounding build container retains Docker's normal isolation.
+ARG PACMAN_DISABLE_SANDBOX=0
+RUN if [ "$PACMAN_DISABLE_SANDBOX" = "1" ]; then \
+        sed -i '/^\[options\]$/a DisableSandbox' /etc/pacman.conf; \
+    fi
+
 RUN pacman --noconfirm -Syu git \
     bash \
     zip \

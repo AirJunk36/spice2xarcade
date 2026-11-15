@@ -20,6 +20,9 @@ external/cv2pdb/*
 
 .ccache/*
 
+# macOS metadata
+.DS_Store
+
 # Visual Studio
 .vs
 out

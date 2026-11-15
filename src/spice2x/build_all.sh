@@ -355,8 +355,19 @@ mkdir -p ${OUTDIR}/src
 if ((INCLUDE_SRC > 0))
 then
 	echo "Generating source file archive..."
-	git archive --format tar.gz --prefix=spice2x/ HEAD ./ > "${OUTDIR}/src/spice2x-${GIT_BRANCH}.tar.gz" 2>/dev/null || \
-		echo "WARNING: Couldn't get git to create the archive. Is this a git repository?"
+	ARCHIVE_BRANCH=$(printf '%s' "$GIT_BRANCH" | tr -c '[:alnum:]_.-' '-')
+	# Package the source actually compiled, including new files and local edits.
+	# Slash-separated development branch names must not create archive subpaths.
+	(
+		set -o pipefail
+		git ls-files --cached --others --exclude-standard -z -- . | \
+			while IFS= read -r -d '' source_path; do
+				if [ -e "$source_path" ] || [ -L "$source_path" ]; then
+					printf '%s\0' "$source_path"
+				fi
+			done | tar --null --verbatim-files-from -T - --transform='s,^,spice2x/,' \
+				-czf "${OUTDIR}/src/spice2x-${ARCHIVE_BRANCH}.tar.gz"
+	)
 fi
 
 # sdk headers

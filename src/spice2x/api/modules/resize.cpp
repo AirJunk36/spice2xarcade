@@ -1,4 +1,5 @@
 #include "resize.h"
+#include <vector>
 #include "external/rapidjson/document.h"
 #include "cfg/screen_resize.h"
 
