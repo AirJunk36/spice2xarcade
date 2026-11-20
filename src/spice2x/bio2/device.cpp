@@ -36,12 +36,28 @@ namespace bio2 {
     bool parse_sdvx_board(std::string_view name, Board &board) {
         if (name.empty() || name == "bi2a") {
             board = Board::SDVX_BI2A;
+        } else if (name == "bi2x") {
+            board = Board::BI2X;
         } else if (name == "kfca") {
             board = Board::SDVX_KFCA;
         } else {
             return false;
         }
         return true;
+    }
+
+    std::string_view sdvx_bi2x_channel_name(std::string_view name) {
+        constexpr std::pair<std::string_view, std::string_view> layout[] {
+            {"Start", "P1 Start"}, {"BT-A", "P1 1"}, {"BT-B", "P1 2"}, {"BT-C", "P1 3"},
+            {"BT-D", "P1 4"}, {"FX-L", "P1 5"}, {"FX-R", "P1 6"},
+            {"Headphone", "P1 Headphone"}, {"VOL-L", "Turntable P1"}, {"VOL-R", "Turntable P2"},
+        };
+        for (const auto &[game, physical] : layout) {
+            if (name == game) {
+                return physical;
+            }
+        }
+        return name;
     }
 
     const char *device_id(Board board) {

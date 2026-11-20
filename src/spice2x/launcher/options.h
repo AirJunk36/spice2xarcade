@@ -98,6 +98,7 @@ namespace launcher {
             SDVXNativeIO,
             SDVXNativeBoard,
             SDVXNativePort,
+            SDVXNativeBI2XModules,
             SDVXForce720p,
             SDVXPrinterEmulation,
             SDVXPrinterOutputPath,

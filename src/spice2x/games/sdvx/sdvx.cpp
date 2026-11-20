@@ -404,10 +404,11 @@ namespace games::sdvx {
             if (bio2::parse_sdvx_board(
                     options->at(launcher::Options::SDVXNativeBoard).value_text(), board)) {
                 log_info("sdvx", "Starting native {} hardware", bio2::board_name(board));
-                bio2::start(options->at(launcher::Options::SDVXNativePort).value_text(), "",
+                bio2::start(options->at(launcher::Options::SDVXNativePort).value_text(),
+                    options->at(launcher::Options::SDVXNativeBI2XModules).value_text(),
                     board == bio2::Board::SDVX_KFCA, board);
             } else {
-                log_warning("sdvx", "Invalid sdvxioboard selection; choose bi2a or kfca");
+                log_warning("sdvx", "Invalid sdvxioboard selection; choose bi2a, bi2x or kfca");
             }
         }
 

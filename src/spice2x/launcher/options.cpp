@@ -943,7 +943,7 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::SDVXNativeIO] = {
         .title = "Native SDVX I/O Hardware",
         .name = "sdvxnativeio",
-        .desc = "Connect directly to a physical SDVX BI2A or KFCA board.",
+        .desc = "Connect to a physical SDVX BI2A, KFCA, or IIDX Lightning BI2X board.",
         .type = OptionType::Bool,
         .game_name = "Sound Voltex",
         .category = "Game Options",
@@ -955,12 +955,21 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
         .type = OptionType::Enum,
         .game_name = "Sound Voltex",
         .category = "Game Options",
-        .elements = {{"bi2a", "SDVX BI2A"}, {"kfca", "KFCA / SDVX 1-4"}},
+        .elements = {{"bi2a", "SDVX BI2A"}, {"kfca", "KFCA / SDVX 1-4"},
+            {"bi2x", "BI2X / Lightning Model"}},
     };
     c[launcher::Options::SDVXNativePort] = {
         .title = "Native SDVX I/O Port",
         .name = "sdvxioport",
-        .desc = "Physical COM port. Empty auto-detects BI2A or uses COM3 for KFCA.",
+        .desc = "Physical COM port. Empty auto-detects BIO2 or uses COM3 for KFCA.",
+        .type = OptionType::Text,
+        .game_name = "Sound Voltex",
+        .category = "Game Options",
+    };
+    c[launcher::Options::SDVXNativeBI2XModules] = {
+        .title = "SDVX BI2X Runtime Directory",
+        .name = "sdvxbi2xmodules",
+        .desc = "Directory containing the IIDX Lightning BI2X TDJ and SCI runtime modules.",
         .type = OptionType::Text,
         .game_name = "Sound Voltex",
         .category = "Game Options",

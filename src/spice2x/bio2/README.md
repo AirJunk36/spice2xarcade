@@ -103,6 +103,7 @@ The regular **Buttons** page remains available for keyboard and controller bindi
 | --- | --- | --- |
 | SDVX BI2A | KFCA in SDVX 1–4, BI2A, or UFC/BI2X in Valkyrie mode | Keys, two knobs, key lamps, paired RGB wing lamps, woofer, controller, generator, pop and title lamps |
 | SDVX KFCA | KFCA, BI2A, or UFC/BI2X in Valkyrie mode | Keys, two knobs, key lamps and original RGB outputs |
+| IIDX Lightning BI2X | KFCA, BI2A, or UFC/BI2X in Valkyrie mode | Physical IIDX buttons, two turntable inputs, and remappable BI2X lamps |
 
 Check **Native I/O hardware**, select the board, and set **Port / USB path**
 to the physical COM port. KFCA uses COM3 by default at 57600 baud. BI2A uses
@@ -112,7 +113,16 @@ I/O enabled. Example launch options:
 ```
 -sdvxnativeio -sdvxioboard bi2a -sdvxioport COM5
 -sdvxnativeio -sdvxioboard kfca -sdvxioport COM3
+-sdvxnativeio -sdvxioboard bi2x -sdvxioport COM5 -sdvxbi2xmodules C:\BI2XRuntime
 ```
+
+For an IIDX Lightning board, choose **BI2X / Lightning Model** and use the same
+TDJ and SCI runtime files as the IIDX driver. In **BIO2 Buttons**, **Apply
+SDVX layout** assigns BT-A through FX-R to P1 keys 1 through 6, Start to P1 Start,
+and VOL-L/R to the P1/P2 turntable inputs. It fills unbound inputs and can
+replace existing BIO2 primary bindings. **Bind** lets you choose a different
+physical button. **Fill unbound outputs** pairs SDVX key lamps with the same
+physical keys. RGB game lights can be routed to individual physical channels.
 
 The BI2A and KFCA backends have synthetic serial tests. Physical-board and
 per-version game testing is pending. The Valkyrie UFC game adapter is available
