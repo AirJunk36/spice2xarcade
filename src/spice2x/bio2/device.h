@@ -38,6 +38,7 @@ namespace bio2 {
     void stop();
     Status status();
     bool read_button(size_t channel, bool invert = false);
+    uint32_t pressed_buttons();
     float read_analog(size_t channel);
     void write_light(size_t channel, float value);
     float read_light(size_t channel);

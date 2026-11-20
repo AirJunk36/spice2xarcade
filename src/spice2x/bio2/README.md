@@ -22,9 +22,10 @@ the game's existing device discovery and startup path.
 3. Open **I/O connection** to set the serial port or USB path. Empty means auto.
 4. Click **Connect I/O**. BI2X normally resets for eight seconds; BI2A resets for
    about three seconds and discovers its ACIO node. Neither mode forces TDJ.
-5. **Fill unbound inputs** assigns matching keys, turntables, and available effect
-   sliders. Existing bindings are preserved. Each dropdown redirects one physical
-   input to a game input. Changing a row replaces that row's previous bindings.
+5. **Auto-bind matching inputs** assigns matching unbound keys, turntables, and
+   supported effect sliders. To redirect a key, click **Bind** on its row and
+   press a physical BIO2 button. The standard **Bind (many)**, **Add alternate**,
+   **Unbind** and **Edit properties** actions are available on the same page.
 6. Open **BIO2 Lights**. **Fill unbound outputs** maps matching available outputs.
    Hold **Test** to preview, then release to restore the latest game state.
 

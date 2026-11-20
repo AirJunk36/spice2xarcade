@@ -426,6 +426,21 @@ namespace bio2 {
             && (b.buttons[channel] != invert);
     }
 
+    uint32_t pressed_buttons() {
+        static_assert(BUTTON_COUNT <= 32);
+        auto &b = backend();
+        std::lock_guard<std::mutex> lock(b.mutex);
+        uint32_t pressed = 0;
+        if (b.state.online) {
+            for (size_t i = 0; i < BUTTON_COUNT; ++i) {
+                if (button_available(b.board, i) && b.buttons[i]) {
+                    pressed |= uint32_t{1} << i;
+                }
+            }
+        }
+        return pressed;
+    }
+
     float read_analog(size_t channel) {
         auto &b = backend();
         std::lock_guard<std::mutex> lock(b.mutex);

@@ -58,6 +58,7 @@ namespace overlay::windows {
         // buttons tab
         bool buttons_keyboard_state[0xFF];
         bool buttons_bind_active = false;
+        uint32_t bio2_buttons_held_on_bind = 0;
         bool buttons_many_active = false;
         std::string buttons_many_active_section = "";
         bool buttons_many_naive = false;
@@ -174,7 +175,8 @@ namespace overlay::windows {
             const int button_it_max,
             const int alt_index);
 
-        void bind_button_popup(const std::string &bind_name, Button *button, const int button_it_max, const int alt_index);
+        void bind_button_popup(const std::string &bind_name, Button *button, int button_it_max,
+            int alt_index, bool bio2_only);
         void naive_button_popup(const std::string &naive_string, Button *button, const int button_it_max, const int alt_index);
         bool build_modifier_picker(Button &button);
         void edit_button_popup(

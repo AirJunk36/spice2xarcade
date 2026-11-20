@@ -111,6 +111,8 @@ int main(int argc, char **argv) {
         && bio2::read_button(3) && bio2::read_button(7) && bio2::read_button(20)
         && !bio2::read_button(8), "physical legacy input snapshot");
     check(!bio2::read_button(21, true), "missing headphone input cannot invert to held");
+    check(bio2::pressed_buttons() == (0x0fu | (1u << 7) | (1u << 20)),
+        "binding snapshot identifies the pressed physical channels");
     check(std::abs(bio2::read_analog(0) - 170 / 255.f) < .001f
         && bio2::read_analog(1) == 1.f && bio2::read_analog(2) == 1.f
         && std::abs(bio2::read_analog(6) - 3 / 15.f) < .001f,
@@ -126,6 +128,7 @@ int main(int argc, char **argv) {
     check(wait_for([] { return !bio2::status().online; }, 5000), "legacy timeout detected");
     check(!bio2::read_button(7) && !bio2::read_button(7, true)
         && bio2::read_analog(0) == 0.f, "legacy disconnect releases inputs");
+    check(bio2::pressed_buttons() == 0, "binding snapshot is empty while disconnected");
     check(wait_for([] { return bio2::status().online; }, 5000), "legacy automatic reconnect");
     check(wait_for([] { return bio2::read_button(7); }, 500), "legacy inputs resume");
     std::this_thread::sleep_for(std::chrono::milliseconds(150));

@@ -1027,31 +1027,34 @@ namespace overlay::windows {
         ImGui::Separator();
     }
 
+    static void set_bio2_binding(Button &button, uint16_t channel) {
+        button.setDeviceIdentifier(bio2::DEVICE_ID);
+        button.setVKey(channel);
+        button.setAnalogType(BAT_NONE);
+        button.setDebounceUp(0.0);
+        button.setDebounceDown(0.0);
+        button.setBatThreshold(0);
+        button.setVelocityThreshold(0);
+        button.setModifierMask(0);
+        button.setInvert(false);
+        button.setTemporary(false);
+    }
+
     void Config::build_bio2_buttons() {
         const auto board = bio2_config_board(this->games_selected_name);
-        ImGui::Text("BIO2 Buttons - %s", bio2::board_name(board));
-        ImGui::TextWrapped("Map a physical BIO2 input to each game input. "
-            "Changing a row replaces its previous bindings.");
+        ImGui::TextWrapped("Connect a BIO2 board, then click Bind and press a cabinet button.");
         auto &buttons = *games::get_buttons(this->games_selected_name);
         const auto &game = games_list[games_selected];
         const auto &names = bio2::button_names();
-        auto bind = [&](Button &button, int channel) {
-            for (int i = static_cast<int>(button.getAlternatives().size()) - 1; i >= 0; i--) {
-                ::Config::getInstance().updateBinding(game, Button(button.getName()), i);
-            }
-            button = Button(button.getName());
-            if (channel >= 0) {
-                button.setDeviceIdentifier(bio2::DEVICE_ID);
-                button.setVKey(static_cast<uint16_t>(channel));
-            }
-            ::Config::getInstance().updateBinding(game, button, -1);
-        };
-        if (ImGui::Button("Fill unbound inputs")) {
+        if (ImGui::Button("Auto-bind matching inputs")) {
             for (auto &button : buttons) {
+                auto &alternates = button.getAlternatives();
                 const auto found = std::find(names.begin(), names.end(), button.getName());
-                if (!button.isSet() && found != names.end()
+                if (!button.isSet() && std::none_of(alternates.begin(), alternates.end(),
+                        [](Button &alt) { return alt.isSet(); }) && found != names.end()
                         && bio2::button_available(board, found - names.begin())) {
-                    bind(button, static_cast<int>(found - names.begin()));
+                    set_bio2_binding(button, static_cast<uint16_t>(found - names.begin()));
+                    ::Config::getInstance().updateBinding(game, button, -1);
                 }
             }
             auto &analogs = *games::get_analogs(this->games_selected_name);
@@ -1063,30 +1066,7 @@ namespace overlay::windows {
                 }
             }
         }
-        if (ImGui::BeginTable("BIO2Inputs", 3, ImGuiTableFlags_Resizable | ImGuiTableFlags_RowBg)) {
-            ImGui::TableSetupColumn("Game input");
-            ImGui::TableSetupColumn("Physical BIO2 input");
-            ImGui::TableSetupColumn("Physical state");
-            ImGui::TableHeadersRow();
-            for (size_t i = 0; i < buttons.size(); i++) {
-                auto &button = buttons[i];
-                int channel = bio2::is_device(button.getDeviceIdentifier())
-                    ? button.getVKey() : (button.isSet() ? -2 : -1);
-                ImGui::PushID(static_cast<int>(i));
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(button.getName().c_str());
-                ImGui::TableNextColumn();
-                if (bio2_channel_combo("##input", &channel, names, true,
-                        board, bio2::button_available)) {
-                    bind(button, channel);
-                }
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(channel >= 0 && bio2::read_button(channel) ? "ON" : "OFF");
-                ImGui::PopID();
-            }
-            ImGui::EndTable();
-        }
+        build_buttons("BIO2", &buttons);
         ImGui::SeparatorText("BIO2 turntables and effect sliders");
         auto &analogs = *games::get_analogs(this->games_selected_name);
         const auto &analog_names = bio2::analog_names();
@@ -1263,13 +1243,23 @@ namespace overlay::windows {
                     }
                     ImGui::CloseCurrentPopup();
                 }
-            } else {
-                if (ImGui::Button("Yes")) {
-                    for (auto &button : *buttons) {
+            } else if (ImGui::Button("Yes")) {
+                for (auto &button : *buttons) {
+                    if (name != "BIO2") {
                         reset_button_to_default(&button, button.getVKeyDefault());
+                        continue;
                     }
-                    ImGui::CloseCurrentPopup();
+                    if (bio2::is_device(button.getDeviceIdentifier())) {
+                        clear_button(&button, 0);
+                    }
+                    auto &alternates = button.getAlternatives();
+                    for (size_t i = 0; i < alternates.size(); ++i) {
+                        if (bio2::is_device(alternates[i].getDeviceIdentifier())) {
+                            clear_button(&alternates[i], static_cast<int>(i + 1));
+                        }
+                    }
                 }
+                ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel")) {
@@ -1419,6 +1409,7 @@ namespace overlay::windows {
         ImGui::TableNextColumn();
 
         // normal button binding
+        const bool bio2_only = name == "BIO2";
         std::string bind_name = "Bind " + button_name;
         if (ImGui::Button("Bind")
             || (buttons_many_active && buttons_many_active_section == name && !buttons_bind_active
@@ -1432,6 +1423,10 @@ namespace overlay::windows {
                 buttons_many_index = button_it;
                 buttons_many_naive = false;
                 buttons_many_active_section = name;
+            }
+
+            if (bio2_only) {
+                bio2_buttons_held_on_bind = bio2::pressed_buttons();
             }
 
             // midi freeze
@@ -1472,7 +1467,8 @@ namespace overlay::windows {
             }
         }
         if (ImGui::IsItemHovered(ImGui::TOOLTIP_FLAGS)) {
-            ImGui::HelpTooltip("Bind a button to a device using Windows RawInput API.");
+            ImGui::HelpTooltip(bio2_only ? "Bind a physical BIO2 button."
+                : "Bind a button to a device using Windows RawInput API.");
         }
 
         if (this->analog_as_button_warning_show_next_frame.first == button->getName() &&
@@ -1520,7 +1516,7 @@ namespace overlay::windows {
             ImGui::EndPopup();
         }
 
-        bind_button_popup(bind_name, button, button_it_max, alt_index);
+        bind_button_popup(bind_name, button, button_it_max, alt_index, bio2_only);
 
         // naive binding
         ImGui::SameLine();
@@ -1704,24 +1700,31 @@ namespace overlay::windows {
     }
 
     void Config::bind_button_popup(
-        const std::string &bind_name, Button *button, const int button_it_max, const int alt_index) {
+        const std::string &bind_name, Button *button, int button_it_max, int alt_index,
+        bool bio2_only) {
 
         if (ImGui::BeginPopupModal(bind_name.c_str(), NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
 
             // modal content
-            ImGui::TextUnformatted("Press any button for:");
+            ImGui::TextUnformatted(bio2_only ? "Press a BIO2 button for:" : "Press any button for:");
             ImGui::Text("    %s", button->getName().c_str());
             ImGui::TextUnformatted("");
             ImGui::TextColored(ImVec4(1, 0.7f, 0, 1), "Press ESC to cancel!");
             ImGui::TextUnformatted("");
-            ImGui::TextUnformatted(
-                "Hint: if your controller is refusing to be detected,\n"
-                "      try rebooting Windows. Rare Windows bug can\n"
-                "      cause this.");
+            if (bio2_only) {
+                if (!bio2::status().online) {
+                    ImGui::TextUnformatted("BIO2 is offline. Connect the board to bind an input.");
+                }
+            } else {
+                ImGui::TextUnformatted(
+                    "Hint: if your controller is refusing to be detected,\n"
+                    "      try rebooting Windows. Rare Windows bug can\n"
+                    "      cause this.");
+            }
             ImGui::TextUnformatted("");
 
             bool check_devices = true;
-            if (ImGui::Button("Cancel")) {
+            if (ImGui::Button("Cancel") || (bio2_only && ImGui::IsKeyPressed(ImGuiKey_Escape))) {
                 RI_MGR->devices_midi_freeze(false);
                 buttons_bind_active = false;
                 buttons_many_active = false;
@@ -1738,7 +1741,24 @@ namespace overlay::windows {
                     ImGui::CloseCurrentPopup();
                 }
             }
-            if (check_devices) {
+            if (check_devices && bio2_only) {
+                const uint32_t pressed = bio2::pressed_buttons();
+                bio2_buttons_held_on_bind &= pressed;
+                const uint32_t new_presses = pressed & ~bio2_buttons_held_on_bind;
+                for (uint16_t channel = 0; channel < bio2::BUTTON_COUNT; ++channel) {
+                    if ((new_presses & (uint32_t{1} << channel)) != 0) {
+                        set_bio2_binding(*button, channel);
+                        ::Config::getInstance().updateBinding(
+                            games_list[games_selected], *button, alt_index - 1);
+                        RI_MGR->devices_midi_freeze(false);
+                        buttons_bind_active = false;
+                        inc_buttons_many_index(button_it_max);
+                        ImGui::CloseCurrentPopup();
+                        break;
+                    }
+                }
+            }
+            if (check_devices && !bio2_only) {
                 // iterate updated devices
                 auto updated_devices = RI_MGR->devices_get_updated();
                 bool binding_finished = false;
@@ -2380,8 +2400,14 @@ namespace overlay::windows {
             ImGui::Separator();
 
             // combo for devices
-            std::string device_desc = (device != nullptr) ? device->desc : "Empty (Naive)";
+            const bool iidx = this->games_selected_name == "Beatmania IIDX";
+            const bool native = bio2::is_device(button->getDeviceIdentifier());
+            std::string device_desc = native ? "BIO2" :
+                (device != nullptr ? device->desc : "Empty (Naive)");
             if (ImGui::BeginCombo("Device Identifier", device_desc.c_str())) {
+                if (iidx && ImGui::Selectable("BIO2", native) && !native) {
+                    switch_device(bio2::DEVICE_ID);
+                }
                 if (ImGui::Selectable("Empty (Naive)", button->isNaive()) && !button->isNaive()) {
                     switch_device("");
                 }
@@ -2401,6 +2427,16 @@ namespace overlay::windows {
                 ImGui::EndCombo();
             }
             device = RI_MGR->devices_get(button->getDeviceIdentifier());
+
+            if (bio2::is_device(button->getDeviceIdentifier())) {
+                int channel = button->getVKey();
+                const auto board = bio2_config_board(this->games_selected_name);
+                if (bio2_channel_combo("BIO2 input", &channel, bio2::button_names(), false,
+                        board, bio2::button_available)) {
+                    button->setVKey(static_cast<uint16_t>(channel));
+                    dirty = true;
+                }
+            }
 
             // analog type (only for HID)
             const auto bat = button->getAnalogType();
@@ -2681,7 +2717,7 @@ namespace overlay::windows {
                     }
                 }
 
-            } else {
+            } else if (!bio2::is_device(button->getDeviceIdentifier())) {
                 int vKey = button->getVKey();
                 if (ImGui::InputInt(button->isNaive() ? "Virtual Key" : "Index", &vKey, 1, 1)) {
                     button->setVKey(vKey);
