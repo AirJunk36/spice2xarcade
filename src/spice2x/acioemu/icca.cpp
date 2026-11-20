@@ -522,7 +522,7 @@ void ICCADevice::update_status(int unit) {
              * 0x00 - ISO15696
              * 0x01 - FELICA
              */
-            bool felica = buffer[2] != 0xE0 && buffer[3] != 0x04;
+            const bool felica = is_card_uid_felica(buffer + 2);
             buffer[1] = felica ? 0x01 : 0x00;
             buffer[10] = felica ? 0x01 : 0x00;
 

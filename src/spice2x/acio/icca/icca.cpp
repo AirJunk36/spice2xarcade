@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include "icca.h"
 
@@ -33,7 +34,20 @@ struct ICCA_STATUS_LA9 {
     uint8_t error;
     uint8_t uid2[8];
 };
+struct ICCA_STATUS_TRICORO {
+    uint8_t status_code;
+    uint8_t solenoid;
+    uint8_t front_sensor;
+    uint8_t rear_sensor;
+    uint8_t uid[8];
+    uint8_t felica;
+    uint8_t reserved[3];
+    uint8_t key_edge;
+    uint8_t previous_key_edge;
+    uint8_t key_level[2];
+};
 static_assert(sizeof(struct ICCA_STATUS) == 24, "ICCA_STATUS must be 24 bytes");
+static_assert(sizeof(ICCA_STATUS_TRICORO) == 20);
 
 enum ICCA_WORKFLOW {
     STEP = 0,
@@ -67,8 +81,10 @@ struct ICCA_UNIT {
     bool card_in = false;
     double card_in_time = 0.0;
     char key_serial = 0;
+    uint8_t previous_key_edge = 0;
     bool uid_skip = false;
     bool initialized = false;
+    bool tricoro_uid_reported = false;
     int felica_retries = 0;
 };
 static ICCA_UNIT ICCA_UNITS[2] {};
@@ -78,6 +94,12 @@ static double CARD_TIMEOUT = 2.0;
 
 static bool is_iidx_tricoro() {
     return avs::game::is_model("LDJ") && avs::game::is_ext(2012091900, 2013111200);
+}
+
+static bool tricoro_uid_available(const ICCA_UNIT &unit) {
+    return unit.card_in && get_performance_seconds() - unit.card_in_time < CARD_TIMEOUT
+        && std::any_of(std::begin(unit.status.uid), std::end(unit.status.uid),
+            [](uint8_t byte) { return byte != 0; });
 }
 
 static inline int icca_get_active_count() {
@@ -119,6 +141,7 @@ static inline void update_card(int unit_id) {
 
     // get unit
     ICCA_UNIT *unit = &ICCA_UNITS[unit_id];
+    const bool tricoro = is_iidx_tricoro();
 
     const bool card_presented = eamuse_card_insert_consume(icca_get_active_count(), unit_id);
     const bool key_pressed = (kb_insert_press && !kb_insert_press_old[unit_id]);
@@ -136,7 +159,8 @@ static inline void update_card(int unit_id) {
     if (card_presented || key_pressed || (0 < unit->felica_retries)) {
         if (!unit->card_cmd_pressed) {
             unit->card_cmd_pressed = true;
-            if (unit->state == GET_USERID || unit->state == CLOSE_EJECT || unit->state == STEP) {
+            if (unit->state == GET_USERID || unit->state == CLOSE_EJECT || unit->state == STEP
+                    || (tricoro && unit->state == READY)) {
                 if (unit->uid_skip || eamuse_get_card(icca_get_active_count(), unit_id, unit->status.uid)) {
                     IS_LAST_CARD_FELICA = is_card_uid_felica(unit->status.uid);
 
@@ -145,6 +169,7 @@ static inline void update_card(int unit_id) {
                     unit->status.error = 0;
                     unit->status.front_sensor = 1;
                     unit->status.rear_sensor = 1;
+                    unit->tricoro_uid_reported = false;
                 } else {
                     unit->state = ERR_GETUID;
                     unit->state_jdz = ERR_GETUID;
@@ -184,8 +209,8 @@ static inline void update_card(int unit_id) {
         const bool expired = fabs(get_performance_seconds() - unit->card_in_time) > CARD_TIMEOUT;
         // Tricoro polls status again before requesting the UID. Keep its card visible across
         // those polls so the next status call doesn't erase the insertion edge.
-        const bool reading = is_iidx_tricoro() && unit->card_in && !expired &&
-            (unit->state == ACTIVE || unit->state == GET_USERID);
+        const bool reading = tricoro && unit->card_in && !expired &&
+            (unit->state == ACTIVE || unit->state == GET_USERID || unit->state == END);
         if (!reading) {
             unit->state = CLOSE_EJECT;
         }
@@ -264,6 +289,7 @@ static inline void keypad_update(int unit_id) {
             unit->status.key_level |= KEYPAD_KEY_CODES[i];
 
             if (!KEYPAD_LAST[unit_id][i]) {
+                unit->previous_key_edge = static_cast<uint8_t>(unit->status.key_edge);
                 unit->status.key_edge = KEYPAD_KEY_CODES[n] << 16;
                 unit->status.key_edge |= 0x80 | (unit->key_serial << 4) | KEYPAD_KEY_CODE_NUMS[n];
 
@@ -360,6 +386,25 @@ static char __cdecl ac_io_icca_get_status(void *a1, void *a2) {
     } else {
         unit->status.status_code = unit->state;
     }
+    if (is_iidx_tricoro()) {
+        // This libacio revision copies 20 bytes. Byte 12 is the card technology
+        // flag, and the pressed-key bitmap at bytes 18–19 is big endian.
+        ICCA_STATUS_TRICORO result {};
+        result.status_code = unit->status.status_code;
+        result.solenoid = unit->status.solenoid;
+        if (unit->card_in) {
+            result.front_sensor = unit->status.front_sensor;
+            result.rear_sensor = unit->status.rear_sensor;
+            memcpy(result.uid, unit->status.uid, sizeof(result.uid));
+            result.felica = tricoro_uid_available(*unit) && is_card_uid_felica(result.uid);
+        }
+        result.key_edge = static_cast<uint8_t>(unit->status.key_edge);
+        result.previous_key_edge = unit->previous_key_edge;
+        result.key_level[0] = static_cast<uint8_t>(unit->status.key_level >> 8);
+        result.key_level[1] = static_cast<uint8_t>(unit->status.key_level);
+        memcpy(status, &result, sizeof(result));
+        return 1;
+    }
     memcpy(status, &unit->status, sizeof(struct ICCA_STATUS));
 
     // funny workaround
@@ -409,6 +454,10 @@ static char __cdecl ac_io_icca_get_uid(int unit_id, char *card) {
 static char __cdecl ac_io_icca_get_uid_felica(int unit_id, char *card) {
     unit_id = icca_get_unit_id(unit_id);
     ICCA_UNIT *unit = &ICCA_UNITS[unit_id];
+    const bool tricoro = is_iidx_tricoro();
+    if (tricoro && !tricoro_uid_available(*unit)) {
+        return 0;
+    }
 
     // copy card
     memcpy(card, unit->status.uid, 8);
@@ -417,6 +466,11 @@ static char __cdecl ac_io_icca_get_uid_felica(int unit_id, char *card) {
     bool felica = is_card_uid_felica(unit->status.uid);
     card[8] = (char) (felica ? 1 : 0);
     IS_LAST_CARD_FELICA = felica;
+    if (tricoro && !unit->tricoro_uid_reported) {
+        log_info("icca", "Tricoro P{} received a {} UID", unit_id + 1,
+            felica ? "FeliCa" : "legacy e-amusement");
+        unit->tricoro_uid_reported = true;
+    }
 
     if (0 < unit->felica_retries) {
         unit->felica_retries--;
@@ -449,12 +503,18 @@ static int __cdecl ac_io_icca_req_uid_isfinished(int unit_id, DWORD *read_state)
         *read_state = 8;
         return 1;
     }
+    if (is_iidx_tricoro()) {
+        if (tricoro_uid_available(*unit)) {
+            unit->state = END;
+            *read_state = END;
+        } else {
+            *read_state = CLOSE_EJECT;
+        }
+        return 1;
+    }
     if (unit->card_in) {
         if (fabs(get_performance_seconds() - unit->card_in_time) < CARD_TIMEOUT) {
             unit->state = END;
-            if (is_iidx_tricoro()) {
-                log_info("icca", "Tricoro P{} accepted the reader UID request", unit_id + 1);
-            }
         } else {
             unit->state = ERR_GETUID;
         }
@@ -522,7 +582,9 @@ static int __cdecl ac_io_icca_workflow(int workflow, int unit_id) {
     ICCA_UNIT *unit = &ICCA_UNITS[unit_id];
     switch (workflow) {
         case STEP:
-            unit->state = STEP;
+            if (!is_iidx_tricoro()) {
+                unit->state = STEP;
+            }
             break;
         case SLEEP:
             unit->state = SLEEP;

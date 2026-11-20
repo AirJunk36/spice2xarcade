@@ -725,6 +725,17 @@ namespace patcher {
             load_embedded_patches(apply_patches);
         }
 
+        const auto local_path = std::filesystem::path("patches/local") / (first_id + ".json");
+        if (!first_id.empty() && fileutils::file_exists(local_path)) {
+            log_info("patchmanager", "loading additional patches from {}", local_path);
+            std::string content = fileutils::text_read(local_path);
+            append_patches(content, apply_patches, nullptr, first_id);
+            if (!ACTIVE_JSON_FILE.empty()) {
+                ACTIVE_JSON_FILE += ", ";
+            }
+            ACTIVE_JSON_FILE += displayPath(local_path);
+        }
+
         // show amount of patches
         log_info("patchmanager", "loaded total of {} patches", patches.size());
         local_patches_initialized = true;

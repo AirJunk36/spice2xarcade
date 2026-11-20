@@ -16,6 +16,6 @@ namespace acio {
     };
 }
 
-static inline bool is_card_uid_felica(uint8_t *uid) {
-    return uid[0] != 0xE0 && uid[1] != 0x04;
+static inline bool is_card_uid_felica(const uint8_t *uid) {
+    return uid[0] != 0xE0 || uid[1] != 0x04;
 }

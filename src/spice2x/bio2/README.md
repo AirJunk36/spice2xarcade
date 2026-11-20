@@ -171,6 +171,20 @@ routing, display selection and game startup.
   `-exclusivebuffer 20` if needed. A larger buffer adds audio latency.
   For ASIO, use the driver's buffer setting instead.
 
+## Tricoro FeliCa card handoff
+
+Tricoro uses a 20-byte ICCA status and reads the card's technology flag alongside
+the eight-byte UID. Spice keeps the UID available until the card is ejected or
+the reader timeout expires. AIC e-amusement passes and Suica are delivered as
+FeliCa cards using their original UID.
+
+Some `LDJ-506163e5_c4122` executables force the older E004 card type before
+contacting the card server. The separate **Restore FeliCa card detection** local
+patch restores the game's FeliCa selection for the verified executable. Put
+the matching JSON under `patches/local/`, enable it in **Patches**, and save
+with automatic application. This supplements the existing patch list. The
+card server must also support the corresponding card type.
+
 ## Optional ASIO for IIDX 18–26
 Enable **IIDX Force ASIO** in the Game Options or pass `-iidxforceasio`.
 Spice prefers the Xonar driver registered for the executable's bitness.
@@ -178,11 +192,11 @@ To select another driver, use **IIDX ASIO Driver**. A driver selected in the
 existing **WASAPI Exclusive to ASIO Conversion** option takes precedence.
 
 This uses the existing ASIO backend for WASAPI exclusive audio and shared
-audio with event callbacks. DirectSound is outside this conversion path.
+audio, including both event-driven and polling clients.
 The flag overrides the shared/low-latency WASAPI switches only when a
 matching ASIO driver can be selected. Look for `Forcing IIDX WASAPI audio`
 and `audio::asio` in the startup log. The ASIO driver controls its own buffer
-size. Shared event-mode clients such as Tricoro retain their requested mixing
+size. Shared-mode clients such as Tricoro retain their requested mixing
 buffer, with at least two driver periods of headroom. The log records both sizes
 and reports any callback underruns when the stream stops. Hardware playback and
 round-trip latency still require cabinet testing.
