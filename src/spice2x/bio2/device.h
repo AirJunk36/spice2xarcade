@@ -17,7 +17,7 @@ namespace bio2 {
     enum class Board { BI2X, BI2A, IO2, SDVX_BI2A, SDVX_KFCA };
     bool parse_board(std::string_view name, Board &board);
     bool parse_sdvx_board(std::string_view name, Board &board);
-    std::string_view sdvx_bi2x_channel_name(std::string_view name);
+    std::string_view sdvx_iidx_channel_name(std::string_view name);
     constexpr bool is_sdvx(Board board) {
         return board == Board::SDVX_BI2A || board == Board::SDVX_KFCA;
     }

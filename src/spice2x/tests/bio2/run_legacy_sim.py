@@ -161,7 +161,8 @@ def run(executable, kind):
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     try:
-        result = subprocess.run([executable, kind, path], timeout=15, capture_output=True, text=True)
+        selection = 'sdvx-iidx-bi2a' if kind == 'bi2a' else kind
+        result = subprocess.run([executable, selection, path], timeout=15, capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         assert not failures, failures
         if sdvx:

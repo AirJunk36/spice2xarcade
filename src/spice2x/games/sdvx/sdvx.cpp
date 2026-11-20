@@ -408,7 +408,7 @@ namespace games::sdvx {
                     options->at(launcher::Options::SDVXNativeBI2XModules).value_text(),
                     board == bio2::Board::SDVX_KFCA, board);
             } else {
-                log_warning("sdvx", "Invalid sdvxioboard selection; choose bi2a, bi2x or kfca");
+                log_warning("sdvx", "Invalid sdvxioboard; choose bi2a, iidx-bi2a, bi2x or kfca");
             }
         }
 

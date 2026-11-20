@@ -942,7 +942,7 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::SDVXNativeIO] = {
         .title = "Native SDVX I/O Hardware",
         .name = "sdvxnativeio",
-        .desc = "Connect to a physical SDVX BI2A, KFCA, or IIDX Lightning BI2X board.",
+        .desc = "Connect to SDVX BI2A, KFCA, or a BIO2 board with IIDX firmware.",
         .type = OptionType::Bool,
         .game_name = "Sound Voltex",
         .category = "Game Options",
@@ -955,7 +955,7 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
         .game_name = "Sound Voltex",
         .category = "Game Options",
         .elements = {{"bi2a", "SDVX BI2A"}, {"kfca", "KFCA / SDVX 1-4"},
-            {"bi2x", "BI2X / Lightning Model"}},
+            {"bi2x", "BI2X / Lightning Model"}, {"iidx-bi2a", "BI2A / IIDX Standard"}},
     };
     c[launcher::Options::SDVXNativePort] = {
         .title = "Native SDVX I/O Port",

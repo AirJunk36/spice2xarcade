@@ -32,6 +32,10 @@ static void contract() {
     check(bio2::parse_board("bi2a", board) && board == Board::BI2A, "select BI2A");
     check(!bio2::parse_board("unknown", board) && board == Board::BI2A,
         "invalid selection does not select different hardware");
+    check(bio2::parse_sdvx_board("iidx-bi2a", board) && board == Board::BI2A,
+        "SDVX selects the IIDX standard firmware protocol");
+    check(bio2::parse_sdvx_board("bi2a", board) && board == Board::SDVX_BI2A,
+        "native SDVX BI2A keeps its existing protocol");
     check(!bio2::light_available(Board::BI2A, 18) && bio2::light_available(Board::BI2A, 92),
         "legacy output capabilities");
     check(bio2::light_available(Board::BI2X, 83) && !bio2::light_available(Board::BI2X, 84),
@@ -136,10 +140,13 @@ int main(int argc, char **argv) {
     const std::string_view kind = argv[1];
     if (kind.starts_with("sdvx-")) {
         check(bio2::parse_sdvx_board(kind.substr(5), board), "valid SDVX test board");
-        test_sdvx(board, argv[2]);
-        return 0;
+        if (bio2::is_sdvx(board)) {
+            test_sdvx(board, argv[2]);
+            return 0;
+        }
+    } else {
+        check(bio2::parse_board(kind, board), "valid legacy test board");
     }
-    check(bio2::parse_board(argv[1], board), "valid test board");
     check(bio2::start(argv[2], "", true, board), "start legacy backend");
     check(wait_for([] { return bio2::status().online; }, 5000), "legacy board online");
     check(bio2::read_button(0) && bio2::read_button(1) && bio2::read_button(2)
@@ -148,6 +155,12 @@ int main(int argc, char **argv) {
     check(!bio2::read_button(21, true), "missing headphone input cannot invert to held");
     check(bio2::pressed_buttons() == (0x0fu | (1u << 7) | (1u << 20)),
         "binding snapshot identifies the pressed physical channels");
+    if (board == bio2::Board::BI2A) {
+        check(bio2::sdvx_iidx_channel_name("BT-A") == bio2::button_names(board)[7]
+            && bio2::sdvx_iidx_channel_name("BT-B") == bio2::button_names(board)[8]
+            && bio2::sdvx_iidx_channel_name("VOL-L") == bio2::analog_names(board)[0],
+            "SDVX preset uses the expected IIDX Standard key and knob channels");
+    }
     check(std::abs(bio2::read_analog(0) - 170 / 255.f) < .001f
         && bio2::read_analog(1) == 1.f && bio2::read_analog(2) == 1.f
         && std::abs(bio2::read_analog(6) - 3 / 15.f) < .001f,

@@ -38,6 +38,8 @@ namespace bio2 {
             board = Board::SDVX_BI2A;
         } else if (name == "bi2x") {
             board = Board::BI2X;
+        } else if (name == "iidx-bi2a") {
+            board = Board::BI2A;
         } else if (name == "kfca") {
             board = Board::SDVX_KFCA;
         } else {
@@ -46,7 +48,7 @@ namespace bio2 {
         return true;
     }
 
-    std::string_view sdvx_bi2x_channel_name(std::string_view name) {
+    std::string_view sdvx_iidx_channel_name(std::string_view name) {
         constexpr std::pair<std::string_view, std::string_view> layout[] {
             {"Start", "P1 Start"}, {"BT-A", "P1 1"}, {"BT-B", "P1 2"}, {"BT-C", "P1 3"},
             {"BT-D", "P1 4"}, {"FX-L", "P1 5"}, {"FX-R", "P1 6"},
@@ -66,7 +68,7 @@ namespace bio2 {
 
     const char *board_name(Board board) {
         switch (board) {
-            case Board::BI2A: return "BI2A";
+            case Board::BI2A: return "BI2A / IIDX Standard";
             case Board::IO2: return "IO2 / EZUSB FX2";
             case Board::SDVX_BI2A: return "SDVX BI2A";
             case Board::SDVX_KFCA: return "KFCA / SDVX 1-4";

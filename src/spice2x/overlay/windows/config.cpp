@@ -953,7 +953,7 @@ namespace overlay::windows {
         auto &directory = options.at(sdvx ? launcher::Options::SDVXNativeBI2XModules
             : launcher::Options::IIDXBI2XModules);
         if (ImGui::BeginCombo("Physical board", bio2::board_name(board))) {
-            for (const auto *name : {"bi2x", "bi2a", "io2", "kfca"}) {
+            for (const auto *name : {"bi2x", "iidx-bi2a", "bi2a", "io2", "kfca"}) {
                 bio2::Board item;
                 const bool available = sdvx ? bio2::parse_sdvx_board(name, item)
                     : bio2::parse_board(name, item);
@@ -994,10 +994,11 @@ namespace overlay::windows {
             } else if (board == bio2::Board::IO2) {
                 ImGui::TextWrapped("Requires CyUSB3 and IIDX FX2 firmware already loaded on the "
                     "board. Select the real USB device path, not the game's emulated Ezusb-0.");
-            } else if (sdvx) {
-                ImGui::TextWrapped(board == bio2::Board::SDVX_KFCA
-                    ? "KFCA uses 57600 baud. Empty port uses COM3."
-                    : "Requires installed SDVX BI2A firmware. Empty port detects USB BIO2.");
+            } else if (board == bio2::Board::SDVX_KFCA) {
+                ImGui::TextWrapped("KFCA uses 57600 baud. Empty port uses COM3.");
+            } else if (board == bio2::Board::SDVX_BI2A) {
+                ImGui::TextWrapped("Requires installed SDVX BI2A firmware. "
+                    "Empty port detects USB BIO2.");
             } else {
                 ImGui::TextWrapped("Requires installed IIDX BI2A firmware. "
                     "Empty port detects USB 1CCF:804C or 1CCF:8040.");
@@ -1074,7 +1075,7 @@ namespace overlay::windows {
     void Config::build_bio2_buttons() {
         const bool sdvx = this->games_selected_name == "Sound Voltex";
         const auto board = bio2_config_board(this->games_selected_name);
-        const bool sdvx_bi2x = sdvx && board == bio2::Board::BI2X;
+        const bool sdvx_iidx_board = sdvx && (board == bio2::Board::BI2X || board == bio2::Board::BI2A);
         const auto *device = bio2::device_id(board);
         ImGui::TextWrapped("Connect a BIO2 board, then click Bind and press a cabinet button.");
         auto &buttons = *games::get_buttons(this->games_selected_name);
@@ -1082,11 +1083,12 @@ namespace overlay::windows {
         const auto &game = games_list[games_selected];
         const auto &names = bio2::button_names(board);
         const auto &analog_names = bio2::analog_names(board);
-        const auto physical_name = [sdvx_bi2x](std::string_view name) {
-            return sdvx_bi2x ? bio2::sdvx_bi2x_channel_name(name) : name;
+        const auto physical_name = [sdvx_iidx_board](std::string_view name) {
+            return sdvx_iidx_board ? bio2::sdvx_iidx_channel_name(name) : name;
         };
-        const bool apply = ImGui::Button(sdvx_bi2x ? "Apply SDVX layout" : "Auto-bind matching inputs");
-        if (sdvx_bi2x && ImGui::IsItemHovered(ImGui::TOOLTIP_FLAGS)) {
+        const bool apply = ImGui::Button(sdvx_iidx_board
+            ? "Apply SDVX layout" : "Auto-bind matching inputs");
+        if (sdvx_iidx_board && ImGui::IsItemHovered(ImGui::TOOLTIP_FLAGS)) {
             ImGui::HelpTooltip("Assign BT-A through FX-R to IIDX P1 keys 1 through 6. "
                 "Replaces BIO2 primary bindings and fills unbound inputs.");
         }
@@ -1096,7 +1098,7 @@ namespace overlay::windows {
                 const auto found = std::find(names.begin(), names.end(), physical_name(button.getName()));
                 const bool unbound = !button.isSet() && std::none_of(alternates.begin(), alternates.end(),
                     [](Button &alt) { return alt.isSet(); });
-                const bool replace = sdvx_bi2x && bio2::is_device(button.getDeviceIdentifier());
+                const bool replace = sdvx_iidx_board && bio2::is_device(button.getDeviceIdentifier());
                 if ((unbound || replace) && found != names.end()
                         && bio2::button_available(board, found - names.begin())) {
                     set_bio2_binding(button, static_cast<uint16_t>(found - names.begin()), board);
@@ -1106,7 +1108,7 @@ namespace overlay::windows {
             for (auto &analog : analogs) {
                 const auto found = std::find(analog_names.begin(), analog_names.end(),
                     physical_name(analog.getName()));
-                const bool replace = sdvx_bi2x && bio2::is_device(analog.getDeviceIdentifier());
+                const bool replace = sdvx_iidx_board && bio2::is_device(analog.getDeviceIdentifier());
                 if ((!analog.isSet() || replace) && found != analog_names.end()
                         && bio2::analog_available(board, found - analog_names.begin())) {
                     analog.setDeviceIdentifier(device);
@@ -1147,7 +1149,7 @@ namespace overlay::windows {
     void Config::build_bio2_lights() {
         const bool sdvx = this->games_selected_name == "Sound Voltex";
         const auto board = bio2_config_board(this->games_selected_name);
-        const bool sdvx_bi2x = sdvx && board == bio2::Board::BI2X;
+        const bool sdvx_iidx_board = sdvx && (board == bio2::Board::BI2X || board == bio2::Board::BI2A);
         const auto *device = bio2::device_id(board);
         const bool online = bio2::status(device).online;
         ImGui::Text("BIO2 Lights - %s", bio2::board_name(board));
@@ -1177,7 +1179,7 @@ namespace overlay::windows {
         if (ImGui::Button("Fill unbound outputs")) {
             for (auto &light : lights) {
                 const std::string_view name = light.getName();
-                const auto physical = sdvx_bi2x ? bio2::sdvx_bi2x_channel_name(name) : name;
+                const auto physical = sdvx_iidx_board ? bio2::sdvx_iidx_channel_name(name) : name;
                 const auto found = std::find(names.begin(), names.end(), physical);
                 if (!light.isSet() && found != names.end()
                         && bio2::light_available(board, found - names.begin())) {
