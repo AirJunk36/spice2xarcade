@@ -1045,11 +1045,10 @@ namespace overlay::windows {
         }
         if (show_subscreen || (enabled && board == bio2::Board::BI2X && !disable_auto)) {
             auto &backend = options.at(launcher::Options::IIDXLegacyBackend);
-            ImGui::InputText("Subscreen backend DLL", &backend.value);
+            ImGui::InputText("Subscreen backend DLL (optional)", &backend.value);
             if (ImGui::IsItemDeactivatedAfterEdit()) {
                 ::Config::getInstance().updateBinding(game, backend);
             }
-            ImGui::TextWrapped("Empty: use the original backend32.dll or backend64.dll next to Spice.");
             auto &monitor = options.at(launcher::Options::IIDXLegacyMonitor);
             ImGui::InputText("Subscreen monitor (empty = auto)", &monitor.value);
             if (ImGui::IsItemDeactivatedAfterEdit()) {

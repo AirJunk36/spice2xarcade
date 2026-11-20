@@ -25,7 +25,9 @@ validation, cancellation, cached inputs, remapping and reconnection. No
 Bemanitools DLL, kernel driver, game data or proprietary firmware is bundled.
 BI2A persistent firmware and IO2 volatile firmware must be prepared by the user.
 
-The IIDX legacy subscreen bridge loads the original
-[`iidx_btools_subscreen`](https://github.com/cloud11665/iidx_btools_subscreen)
-backend, supplied separately. The bridge connects its VEFX and keypad callbacks
-to Spice game I/O. The original backend renders the UI and handles touch.
+The built-in IIDX subscreen uses window, touch and ticker code adapted from
+[`iidx_btools_subscreen`](https://github.com/cloud11665/iidx_btools_subscreen/tree/300916a7b481be8ff204570fd1e695e6ea36a35c).
+It uses Spice game I/O, the existing DX11 renderer and original Ticker segment
+geometry. The widget textures and font are replaced by Spice's bundled ImGui
+controls. Both its MIT notice and the LED-Segment-ASCII MIT notice are in
+`licenses.txt`. An explicit backend path still supports the standalone DLL.

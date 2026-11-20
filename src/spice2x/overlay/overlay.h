@@ -20,6 +20,7 @@ struct IDXGISwapChain;
 
 namespace overlay {
     class Window;
+    void initialize_imgui_allocators();
 
     enum class OverlayRenderer {
         D3D9,

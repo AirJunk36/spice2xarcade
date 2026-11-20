@@ -33,9 +33,10 @@
 旧 `-bi2x` 与通道编号保持兼容。传统板卡只提供其实际支持的按键、转盘、
 五路滑条、27 路灯和 Ticker；不伪造 RGB 灯带能力。IO2 必须预先加载正确固件，
 BI2A 必须已安装正确 IIDX 固件，代码不包含固件。
-老游戏副屏通过 `games/iidx/legacy_subscreen.cpp` 接入原项目的 `backend.dll`，
-原界面与触摸路径由其提供。启用原生 BI2X 且游戏非 TDJ 时，如有同位数的原版 DLL，
-会自动打开老副屏。可关掉自动启动，IIDX IO Panel 仍可手动打开。
+内置老游戏副屏在 `games/iidx/legacy_subscreen_builtin.cpp` 中接入原项目的
+布局、Ticker 和 Windows Pointer 触摸路径。启用原生 BI2X 且游戏非 TDJ 时，
+Windows 8 或更高版本会自动尝试打开副屏。可关闭自动启动，也可指定同位数的原版
+`backend.dll`。IIDX IO Panel 仍可手动打开。
 源码与协议来源见 `bio2/PROTOCOLS.md`。macOS 模拟板与布局测试已通过 4/4，
 官方 Docker 内 UBSan 测试通过 4/4；关闭熄灯路径连续四轮验证通过。
 最终 Docker 构建及 Windows 7／XP API 检查均通过，没有新增编译警告。
@@ -99,7 +100,8 @@ Lightning Model 是物理硬件，不能等同于让所有老游戏启用 `-iidx
 - https://github.com/djhackersdev/bemanitools/tree/master/doc/iidxhook
   - 文档明确区分 9–17 的注入启动与 18 起的 DLL 启动，可用于核对兼容性边界。
 
-当前仓库未复制 `iidx_btools_subscreen` 的代码、图片或字体。
+已移植 `iidx_btools_subscreen` 的触摸路径、窗口布局和 Ticker 字形。
+仓库保留 MIT 许可与来源，并使用 Spice 的 ImGui 控件及默认字体。
 BI2A／IO2 根据 Bemanitools 的公开协议布局与初始化行为实现，保留其 Unlicense
 出处；固定提交为 `5ae0b175170d9ae657b7634ca514b7848923401e`。
 原生 BI2X 驱动与模拟板来自 `https://github.com/dumcatt/iidxio-bi2x`，

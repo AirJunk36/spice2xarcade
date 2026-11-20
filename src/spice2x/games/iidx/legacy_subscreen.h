@@ -1,12 +1,17 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <windows.h>
 
 namespace games::iidx {
+#ifndef SPICE_XP
+    void run_builtin_legacy_subscreen(HWND main, const RECT &rect, const std::atomic_bool &stopping,
+        std::array<std::atomic<uint16_t>, 2> &keypads, std::array<std::atomic<int>, 5> &sliders);
+#endif
     bool legacy_subscreen_start(const std::string &monitor, const std::string &path);
     std::array<char, 10> legacy_subscreen_ticker();
     void legacy_subscreen_stop();

@@ -130,32 +130,25 @@ as a destination for mapped legacy hardware. Support for the physical
 Valkyrie BI2X/UFC board is pending its native communication and initialization
 protocol. Only the physical board's lamp channels are available when remapping.
 
-## Original subscreen for old games
+## Built-in subscreen for old games
 
-Spice can load the original [iidx_btools_subscreen](https://github.com/cloud11665/iidx_btools_subscreen)
-`backend.dll` and provide game I/O to its existing UI and Windows pointer hook.
+Spice builds in the window layout, Ticker and pointer routing adapted from
+[iidx_btools_subscreen](https://github.com/cloud11665/iidx_btools_subscreen).
+It uses Spice's existing renderer and default font for the controls. The
+subscreen includes two keypads, the nine-character Ticker, five effect
+sliders, card insertion using Spice's card settings, and coin insertion.
 
-1. Use a DLL built for the same architecture as Spice. The author's
-   [v0.2.0 release](https://github.com/cloud11665/iidx_btools_subscreen/releases/tag/v0.2.0)
-   provides x86. For `spice64.exe`, use the original project's x64 artifact if
-   available, or build its `x64-release` preset on Windows with Visual Studio
-   and vcpkg. The published DLL also needs the matching Visual C++ Redistributable.
-2. Put the matching `backend32.dll` or `backend64.dll` next to Spice. A file
-   named `backend.dll` also works, or set **Subscreen backend DLL** to its full
-   path. The original window and touch handler both come from this DLL.
-3. Native BI2X in non-TDJ mode opens the legacy subscreen automatically when
-   the DLL is available. Use `-iidxnoautolegacysub` to disable automatic startup,
-   or `-iidxlegacysub` to request it explicitly. To override the first display
-   other than the game's display, set `-iidxlegacymonitor \\.\DISPLAY2`.
+Native BI2X in non-TDJ mode opens the legacy subscreen automatically on
+Windows 8 or newer. Use `-iidxnoautolegacysub` to disable automatic startup,
+or `-iidxlegacysub` to request it explicitly. Set `-iidxlegacymonitor \\.\DISPLAY2`
+to select the secondary display. Spice keeps the assigned analog input until
+the corresponding screen slider is used and restores it when the screen closes.
 
-The original window supplies both keypads, the nine-character Ticker, five
-effect sliders, and its card menu. The backend's coin control is available
-when the DLL exports `backend_vefxio_io_recv`. Original touch handling uses Windows
-pointer messages and requires Windows 8 or newer. Spice keeps existing analog
-bindings until the corresponding screen slider changes. Once the subscreen
-closes, game input returns to normal bindings. The IIDX IO Panel can be opened
-manually and does not auto-open when launching with the legacy subscreen. IIDX
-has no default I/O panel hotkey. Assign one under **Toggle IO Panel** if needed.
+To use the original standalone project DLL, set **Subscreen backend DLL** or
+pass `-iidxlegacybackend` with its path. The author's
+[v0.2.0 release](https://github.com/cloud11665/iidx_btools_subscreen/releases/tag/v0.2.0)
+works with `spice.exe`. Use a 64-bit build of the same project with `spice64.exe`.
+The IIDX IO Panel remains available through its own overlay toggle.
 
 The initial game scope remains **IIDX 18–26**. The reference project lists
 12–24, and the Spice bridge and 25–26 still need cabinet testing, including touch
@@ -189,7 +182,10 @@ audio with event callbacks. DirectSound is outside this conversion path.
 The flag overrides the shared/low-latency WASAPI switches only when a
 matching ASIO driver can be selected. Look for `Forcing IIDX WASAPI audio`
 and `audio::asio` in the startup log. The ASIO driver controls its own buffer
-size. Hardware playback and round-trip latency still require cabinet testing.
+size. Shared event-mode clients such as Tricoro retain their requested mixing
+buffer, with at least two driver periods of headroom. The log records both sizes
+and reports any callback underruns when the stream stops. Hardware playback and
+round-trip latency still require cabinet testing.
 
 ## Validation
 

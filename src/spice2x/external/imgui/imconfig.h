@@ -14,6 +14,12 @@
 
 #pragma once
 
+// Spice uses the shared context across game threads. The dedicated IIDX
+// subscreen thread redirects only its own context slot.
+struct ImGuiContext;
+extern thread_local ImGuiContext **spice_imgui_context_slot;
+#define GImGui (*spice_imgui_context_slot)
+
 //---- Define assertion handler. Defaults to calling assert().
 // - If your macro uses multiple statements, make sure is enclosed in a 'do { .. } while (0)' block so it can be used as a single statement.
 // - Compiling with NDEBUG will usually strip out assert() to nothing, which is NOT recommended because we use asserts to notify of programmer mistakes.

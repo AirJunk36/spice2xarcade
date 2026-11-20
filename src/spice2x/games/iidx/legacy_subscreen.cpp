@@ -189,36 +189,16 @@ namespace games::iidx {
             }
         };
 
-        std::filesystem::path backend_path(const std::string &path, std::error_code &error) {
-            if (!path.empty()) {
-                return std::filesystem::absolute(std::filesystem::u8path(path), error);
-            }
-            std::wstring executable(32768, L'\0');
-            const auto length = GetModuleFileNameW(nullptr, executable.data(), executable.size());
-            if (!length || length >= executable.size()) {
-                error = std::error_code(GetLastError(), std::system_category());
-                return {};
-            }
-            executable.resize(length);
-            const auto folder = std::filesystem::path(executable).parent_path();
-            const auto named = folder / (sizeof(void *) == 8 ? L"backend64.dll" : L"backend32.dll");
-            if (std::filesystem::is_regular_file(named, error)) {
-                return named;
-            }
-            error.clear();
-            return folder / L"backend.dll";
-        }
-
         class Subscreen {
             std::thread worker;
             std::mutex mutex;
             std::condition_variable wake;
-            bool stopping = false;
+            std::atomic_bool stopping = false;
             HMODULE module = nullptr;
 
             bool run_wait(std::chrono::milliseconds interval) {
                 std::unique_lock lock(mutex);
-                return !wake.wait_for(lock, interval, [this] { return stopping; });
+                return !wake.wait_for(lock, interval, [this] { return stopping.load(); });
             }
 
             void poll(const Backend &backend, HWND hwnd) {
@@ -291,6 +271,16 @@ namespace games::iidx {
                     log_warning("iidx::subscreen", "No other monitor matches '{}'", monitor);
                     return;
                 }
+#ifndef SPICE_XP
+                if (file.empty()) {
+                    MONITORINFO info {};
+                    info.cbSize = sizeof(info);
+                    if (GetMonitorInfoW(search.monitor, &info)) {
+                        run_builtin_legacy_subscreen(hwnd, info.rcMonitor, stopping, keypad, sliders);
+                    }
+                    return;
+                }
+#endif
                 game_window = hwnd;
                 display_override = search.monitor;
 
@@ -377,14 +367,20 @@ namespace games::iidx {
             log_warning("iidx::subscreen", "The original subscreen requires Windows 8 or newer");
             return false;
         }
-        std::error_code error;
-        const auto file = backend_path(path, error);
-        if (file.empty() || error || !std::filesystem::is_regular_file(file, error)) {
-            log_warning("iidx::subscreen",
-                "Original {}-bit backend DLL not found. Set -iidxlegacybackend or put "
-                "backend.dll next to Spice.", sizeof(void *) * 8);
+        std::filesystem::path file;
+        if (!path.empty()) {
+            std::error_code error;
+            file = std::filesystem::absolute(std::filesystem::u8path(path), error);
+            if (error || !std::filesystem::is_regular_file(file, error)) {
+                log_warning("iidx::subscreen", "Subscreen backend DLL not found: {}", path);
+                return false;
+            }
+        }
+#ifdef SPICE_XP
+        if (file.empty()) {
             return false;
         }
+#endif
         subscreen().start(monitor, file);
         return true;
     }

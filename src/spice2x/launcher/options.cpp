@@ -814,8 +814,7 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::IIDXLegacyBackend] = {
         .title = "IIDX Legacy Subscreen Backend",
         .name = "iidxlegacybackend",
-        .desc = "Path to the original DLL. Empty: look next to Spice for backend32.dll or "
-            "backend64.dll, then backend.dll.",
+        .desc = "Optional path to the original DLL. Empty uses the built-in legacy subscreen.",
         .type = OptionType::Text,
         .game_name = "Beatmania IIDX",
         .category = "Game Options",

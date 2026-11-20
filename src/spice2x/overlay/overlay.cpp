@@ -107,6 +107,13 @@ static void ImGui_Free(void *data, void *user_data) {
     free(data);
 }
 
+void overlay::initialize_imgui_allocators() {
+    static std::once_flag allocators;
+    std::call_once(allocators, [] {
+        ImGui::SetAllocatorFunctions(ImGui_Alloc, ImGui_Free, nullptr);
+    });
+}
+
 void overlay::create_d3d9(HWND hWnd, IDirect3D9 *d3d, IDirect3DDevice9 *device) {
     if (!overlay::ENABLED) {
         return;
@@ -224,7 +231,7 @@ void overlay::SpiceOverlay::init() {
 
     // init imgui
     IMGUI_CHECKVERSION();
-    ImGui::SetAllocatorFunctions(ImGui_Alloc, ImGui_Free, nullptr);
+    initialize_imgui_allocators();
     ImGui::CreateContext();
     ImGui::GetIO();
 

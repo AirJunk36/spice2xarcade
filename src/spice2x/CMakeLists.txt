@@ -461,6 +461,7 @@ set(SOURCE_FILES ${SOURCE_FILES}
         games/iidx/ezusb.cpp
         games/iidx/legacy_camera.cpp
         games/iidx/legacy_subscreen.cpp
+        games/iidx/legacy_subscreen_builtin.cpp
         games/iidx/local_camera.cpp
         games/iidx/camera.cpp
         games/iidx/mf_wrappers.cpp
