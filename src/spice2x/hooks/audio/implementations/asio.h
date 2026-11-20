@@ -144,6 +144,8 @@ private:
     SampleType asio_sample_type = SampleType::UNSUPPORTED;
 
     std::atomic_bool started = false;
+    std::atomic<uint32_t> underrun_callbacks = 0;
+    uint32_t shared_buffer_frames = 0;
     WAVEFORMATEXTENSIBLE format_ {};
     WAVEFORMATEXTENSIBLE last_checked_format {};
 

@@ -535,7 +535,7 @@ void AsioBackend::reset() {
     }
 
     // init buffers
-    if (FAILED(this->init())) {
+    if (!this->init()) {
         return;
     }
 
@@ -578,11 +578,17 @@ void AsioBackend::open_control_panel() {
 
 void AsioBackend::buffer_switch(long double_buffer_index, AsioBool) {
     auto self = ASIO_BACKEND;
+    if (!self || double_buffer_index < 0 || double_buffer_index > 1) {
+        return;
+    }
 
     auto sample_size = sample_type_size(self->asio_sample_type);
     auto channels = static_cast<size_t>(self->format_.Format.nChannels);
     auto num_samples = static_cast<size_t>(self->asio_info_.buffer_preferred_size);
     auto frame_size = channels * sample_size;
+    if (frame_size == 0 || num_samples == 0) {
+        return;
+    }
     auto buffer_len = num_samples * frame_size;
     size_t written = 0;
 
@@ -595,12 +601,13 @@ void AsioBackend::buffer_switch(long double_buffer_index, AsioBool) {
         }
 
         auto frames_to_write = write_len / frame_size;
+        const auto first_frame = written / frame_size;
 
         for (size_t i = 0; i < frames_to_write; i++) {
             for (size_t j = 0; j < channels; j++) {
                 auto buffer = reinterpret_cast<uint8_t *>(self->asio_buffers[j].buffers[double_buffer_index]);
                 memcpy(
-                        &buffer[i * sample_size],
+                        &buffer[(first_frame + i) * sample_size],
                         &entry->buffer[entry->read + (i * channels + j) * sample_size],
                         sample_size);
             }
@@ -622,9 +629,25 @@ void AsioBackend::buffer_switch(long double_buffer_index, AsioBool) {
         }
     }
 
-    // not all drivers support this method, ignore error
-    self->asio_driver->output_ready();
+    const auto ready_frames = written / frame_size;
+    if (ready_frames < num_samples) {
+        // A partially filled ASIO half-buffer still contains the previous audio.
+        for (size_t channel = 0; channel < channels; ++channel) {
+            auto *buffer = static_cast<uint8_t *>(
+                self->asio_buffers[channel].buffers[double_buffer_index]);
+            memset(buffer + ready_frames * sample_size, 0, (num_samples - ready_frames) * sample_size);
+        }
+        if (self->started.load(std::memory_order_relaxed)) {
+            self->underrun_callbacks.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+    if (written > 0) {
+        self->queued_frames.fetch_sub(static_cast<uint32_t>(ready_frames));
+        self->queued_bytes.fetch_sub(written);
+    }
 
+    // Signal after updating padding so the game sees the free space it can fill.
+    self->asio_driver->output_ready();
     if (self->relay_handle.has_value()) {
 
         // trigger game audio callback
@@ -636,12 +659,8 @@ void AsioBackend::buffer_switch(long double_buffer_index, AsioBool) {
                     std::system_category().message(last_error));
         }
     }
-
-    if (written > 0) {
-        self->queued_frames.fetch_sub(static_cast<uint32_t>(written / frame_size));
-        self->queued_bytes.fetch_sub(written);
-    }
 }
+
 void AsioBackend::sample_rate_did_change(AsioSampleRate sample_rate) {
     auto self = ASIO_BACKEND;
 
@@ -801,15 +820,25 @@ HRESULT AsioBackend::on_initialize(
     }
 
     auto ref_time = this->compute_ref_time();
-    log_info("audio::asio", "AsioBackend::on_intialize: sample rate = {}, reference time = {}",
+    log_info("audio::asio", "AsioBackend::on_initialize: sample rate = {}, reference time = {}",
              sample_rate,
              ref_time);
 
-    // warn if this is being used on shared mode without event callback
-    if (*ShareMode == AUDCLNT_SHAREMODE_SHARED &&
-        (*StreamFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK) != AUDCLNT_STREAMFLAGS_EVENTCALLBACK)
-    {
-        log_warning("audio::asio", "shared mode without event callback is not supported, sound will be garbled!");
+    this->shared_buffer_frames = 0;
+    if (*ShareMode == AUDCLNT_SHAREMODE_SHARED) {
+        if (*StreamFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK) {
+            // Give the shared-mode mixer the requested headroom while ASIO still
+            // pulls and signals at the physical driver period.
+            const auto duration = std::clamp<REFERENCE_TIME>(*hnsBufferDuration, 0, 2000000);
+            const auto requested = static_cast<uint32_t>(
+                std::ceil(static_cast<double>(duration) * sample_rate / REFTIMES_PER_SEC));
+            const auto period = static_cast<uint32_t>(this->asio_info_.buffer_preferred_size);
+            this->shared_buffer_frames = std::max(requested, 2 * period);
+            log_info("audio::asio", "Shared buffer: {} frames, ASIO period: {} frames at {} Hz",
+                this->shared_buffer_frames, period, sample_rate);
+        } else {
+            log_warning("audio::asio", "Shared-mode ASIO conversion requires event callbacks");
+        }
     }
 
     /*
@@ -819,7 +848,10 @@ HRESULT AsioBackend::on_initialize(
     }
     */
 
-    *hnsBufferDuration = ref_time;
+    *hnsBufferDuration = this->shared_buffer_frames
+        ? static_cast<REFERENCE_TIME>(std::ceil(
+            REFTIMES_PER_SEC * this->shared_buffer_frames / sample_rate))
+        : ref_time;
     *hnsPeriodicity = ref_time;
 
     if (!is_supported_subformat(this->format_)) {
@@ -836,7 +868,8 @@ HRESULT AsioBackend::on_initialize(
     return S_OK;
 }
 HRESULT AsioBackend::on_get_buffer_size(uint32_t *buffer_frames) noexcept {
-    *buffer_frames = static_cast<uint32_t>(this->asio_info_.buffer_preferred_size);
+    *buffer_frames = this->shared_buffer_frames
+        ? this->shared_buffer_frames : static_cast<uint32_t>(this->asio_info_.buffer_preferred_size);
 
     return S_OK;
 }
@@ -970,6 +1003,7 @@ HRESULT AsioBackend::on_start() noexcept {
     // FlexASIO creates the WASAPI context upon start, prevent recurive initialization
     std::lock_guard initialize_guard(hooks::audio::INITIALIZE_LOCK);
 
+    this->underrun_callbacks = 0;
     auto result = this->run_on_asio_thread([this]() {
         return this->asio_driver->start();
     });
@@ -981,7 +1015,7 @@ HRESULT AsioBackend::on_start() noexcept {
     this->started = true;
 
     // wait until all queued frames are dequeued
-    while (this->queued_frames > 0) {
+    while (!this->shared_buffer_frames && this->queued_frames > 0) {
         std::this_thread::yield();
     }
 
@@ -1012,6 +1046,9 @@ HRESULT AsioBackend::on_stop() noexcept {
     }
 
     this->started = false;
+    if (const auto underruns = this->underrun_callbacks.exchange(0)) {
+        log_warning("audio::asio", "{} output callbacks ran short of game audio", underruns);
+    }
 
     return S_OK;
 }
@@ -1053,6 +1090,10 @@ HRESULT AsioBackend::on_get_buffer(uint32_t num_frames_requested, BYTE **pp_data
     return S_OK;
 }
 HRESULT AsioBackend::on_release_buffer(uint32_t num_frames_written, DWORD flags) noexcept {
+    if (num_frames_written == 0) {
+        CoTaskMemFree(std::exchange(this->active_sound_buffer, nullptr));
+        return S_OK;
+    }
     const size_t length = this->format_.Format.nBlockAlign * num_frames_written;
 
     if ((flags & AUDCLNT_BUFFERFLAGS_SILENT) == AUDCLNT_BUFFERFLAGS_SILENT) {
@@ -1083,13 +1124,18 @@ HRESULT AsioBackend::on_release_buffer(uint32_t num_frames_written, DWORD flags)
 
     // enqueue the buffer for playback
     struct BufferEntry entry {
-        .buffer = this->active_sound_buffer,
+        .buffer = std::exchange(this->active_sound_buffer, nullptr),
         .length = conversion_size,
         .read = 0,
     };
-    this->queue.enqueue(entry);
     this->queued_frames.fetch_add(num_frames_written);
     this->queued_bytes.fetch_add(conversion_size);
+    if (!this->queue.enqueue(entry)) {
+        this->queued_frames.fetch_sub(num_frames_written);
+        this->queued_bytes.fetch_sub(conversion_size);
+        CoTaskMemFree(entry.buffer);
+        return AUDCLNT_E_BUFFER_ERROR;
+    }
 
     return S_OK;
 }
