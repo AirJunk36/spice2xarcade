@@ -1490,11 +1490,11 @@ static void             UpdateViewportPlatformMonitor(ImGuiViewportP* viewport);
 //   - Future development aims to make this context pointer explicit to all calls. Also read https://github.com/ocornut/imgui/issues/586
 //   - If you need a finite number of contexts, you may compile and use multiple instances of the ImGui code from a different namespace.
 // - DLL users: read comments above.
+#ifdef SPICE_XP
+ImGuiContext*   GImGui = NULL;
+#else
 static ImGuiContext *spice_imgui_shared_context = nullptr;
 thread_local ImGuiContext **spice_imgui_context_slot = &spice_imgui_shared_context;
-
-#ifndef GImGui
-ImGuiContext*   GImGui = NULL;
 #endif
 
 // Memory Allocator functions. Use SetAllocatorFunctions() to change them.
