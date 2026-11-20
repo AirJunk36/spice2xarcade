@@ -11,6 +11,7 @@
 #include "games/iidx/legacy_camera.h"
 
 #include "hooks/audio/audio.h"
+#include "hooks/audio/asio_driver_scan.h"
 #include "hooks/avshook.h"
 #include "hooks/cfgmgr32hook.h"
 #include "hooks/devicehook.h"
@@ -25,6 +26,7 @@
 #include "touch/native/nativetouchhook.h"
 #include "misc/eamuse.h"
 #include "misc/wintouchemu.h"
+#include "overlay/overlay.h"
 #include "util/detour.h"
 #include "util/deferlog.h"
 #include "util/fileutils.h"
@@ -427,10 +429,28 @@ namespace games::iidx {
 
 #endif
 
+        const bool manual_subscreen = options->at(launcher::Options::IIDXLegacySubscreen).value_bool();
+        bio2::Board board;
+        const bool auto_subscreen = !TDJ_MODE &&
+            !options->at(launcher::Options::IIDXNoAutoLegacySubscreen).value_bool() &&
+            options->at(launcher::Options::IIDXBI2XNative).value_bool() &&
+            bio2::parse_board(options->at(launcher::Options::IIDXBIO2Board).value_text(), board) &&
+            board == bio2::Board::BI2X;
+        if ((manual_subscreen || auto_subscreen) && legacy_subscreen_start(
+                options->at(launcher::Options::IIDXLegacyMonitor).value_text(),
+                options->at(launcher::Options::IIDXLegacyBackend).value_text())) {
+            overlay::AUTO_SHOW_SUBSCREEN = false;
+            overlay::AUTO_SHOW_IOPANEL = false;
+        }
+
+        const bool force_asio = options->at(launcher::Options::IIDXForceAsio).value_bool();
         if (hooks::audio::ENABLED) {
-            apply_audio_hacks();
+            apply_audio_hacks(force_asio);
         } else {
             log_warning("iidx", "skipping audio hooks; disabled by user");
+            if (force_asio) {
+                log_warning("iidx", "IIDX Force ASIO requires Spice audio hooks");
+            }
         }
 
         // ASIO device hook
@@ -487,12 +507,6 @@ namespace games::iidx {
             } else {
                 log_warning("bio2", "Invalid bio2board value; native hardware disabled");
             }
-        }
-
-        if (options->at(launcher::Options::IIDXLegacySubscreen).value_bool()) {
-            legacy_subscreen_start(
-                options->at(launcher::Options::IIDXLegacyMonitor).value_text(),
-                options->at(launcher::Options::IIDXLegacyBackend).value_text());
         }
 
         // environment variables must be set before the DLL is loaded as the VC++ runtime copies all
@@ -900,7 +914,44 @@ namespace games::iidx {
         return TDJ_MODE && avs::game::is_ext(2022101900, INT_MAX);
     }
 
-    void apply_audio_hacks() {
+    static void configure_asio_conversion() {
+        const auto drivers = hooks::audio::scan_asio_drivers();
+        const auto &convert_driver = hooks::audio::ASIO_DRIVER_NAME;
+        const auto requested = convert_driver.empty() ? ASIO_DRIVER.value_or("") : convert_driver;
+        const char *preferred = sizeof(void *) == 8 ? ORIGINAL_ASIO_DEVICE_NAME : "XONAR SOUND CARD";
+        const hooks::audio::AsioDriverScanEntry *selected = nullptr;
+        size_t matching_drivers = 0;
+        for (const auto &driver : drivers) {
+            if (sizeof(void *) == 8 ? !driver.found_64bit : !driver.found_32bit) {
+                continue;
+            }
+            ++matching_drivers;
+            if (_stricmp(driver.name.c_str(), requested.empty() ? preferred : requested.c_str()) == 0) {
+                selected = &driver;
+                break;
+            }
+            if (requested.empty()) {
+                selected = &driver;
+            }
+        }
+        if (!selected || (matching_drivers > 1 && requested.empty() &&
+                _stricmp(selected->name.c_str(), preferred) != 0)) {
+            log_warning("iidx::asio", "Could not choose a {}-bit ASIO driver. "
+                "Set IIDX ASIO Driver or -asioconvert. Keeping Windows audio.", sizeof(void *) * 8);
+            if (hooks::audio::BACKEND == hooks::audio::Backend::Asio) {
+                hooks::audio::BACKEND.reset();
+            }
+            return;
+        }
+        hooks::audio::ASIO_DRIVER_NAME = selected->name;
+        hooks::audio::ASIO_DRIVER_ID.reset();
+        hooks::audio::BACKEND = hooks::audio::Backend::Asio;
+        hooks::audio::WASAPI_COMPATIBILITY_MODE = false;
+        hooks::audio::LOW_LATENCY_SHARED_WASAPI = false;
+        log_info("iidx::asio", "Forcing IIDX WASAPI audio through {}", selected->name);
+    }
+
+    void apply_audio_hacks(bool force_asio) {
 
 #ifdef SPICE64
 
@@ -935,7 +986,14 @@ namespace games::iidx {
         if (!has_SOUND_OUTPUT_DEVICE && !has_XONAR_SOUND_CARD) {
             // iidx 25-26
             log_info("iidx", "This game only uses WASAPI audio engine");
+            if (force_asio) {
+                configure_asio_conversion();
+            }
             return;
+        }
+
+        if (force_asio) {
+            log_info("iidx::asio", "This version has native audio selection. Use IIDX Sound Output Device.");
         }
 
         // if the game doesn't accept SOUND_OUTPUT_DEVICE, patch game to force wasapi
@@ -966,6 +1024,10 @@ namespace games::iidx {
         // handled transparently by the WrappedAsio proxy (see hooks/audio/asio_proxy.cpp),
         // so no game-DLL signature patch is needed here anymore
 
+#else
+        if (force_asio) {
+            configure_asio_conversion();
+        }
 #endif
 
     }

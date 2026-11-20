@@ -530,12 +530,12 @@ namespace overlay::windows {
         auto page_groups = CONTROLLER_PAGE_GROUPS;
         if (native_bio2) {
             for (auto &group : page_groups) {
-                if (group.second == ControllerPage::CONTROLLER_PAGE_BUTTONS) {
-                    group.first = "BIO2 Buttons";
-                } else if (group.second == ControllerPage::CONTROLLER_PAGE_LIGHTS) {
+                if (group.second == ControllerPage::CONTROLLER_PAGE_LIGHTS) {
                     group.first = "BIO2 Lights";
                 }
             }
+            page_groups.emplace(page_groups.begin() + 1, "BIO2 Buttons",
+                ControllerPage::CONTROLLER_PAGE_BIO2_BUTTONS);
         }
         if (std::none_of(page_groups.begin(), page_groups.end(), [this](const auto &group) {
                 return this->controller_page_label == group.first;
@@ -614,13 +614,12 @@ namespace overlay::windows {
             *page_selected_new = group.second;
 
             switch (group.second) {
+                case ControllerPage::CONTROLLER_PAGE_BIO2_BUTTONS: {
+                    build_bio2_connection();
+                    build_bio2_buttons();
+                    break;
+                }
                 case ControllerPage::CONTROLLER_PAGE_BUTTONS: {
-                    if (native_bio2) {
-                        build_bio2_connection();
-                        build_bio2_buttons();
-                        break;
-                    }
-
                     // help text for binding buttons, if the game has one
                     const auto help_text = games::get_buttons_help(this->games_selected_name);
                     if (!help_text.empty()) {
@@ -1002,17 +1001,23 @@ namespace overlay::windows {
         }
         auto &subscreen = options.at(launcher::Options::IIDXLegacySubscreen);
         bool show_subscreen = subscreen.value_bool();
-        if (ImGui::Checkbox("Legacy subscreen (next game launch)", &show_subscreen)) {
+        if (ImGui::Checkbox("Always try legacy subscreen on launch", &show_subscreen)) {
             subscreen.value = show_subscreen ? "1" : "";
             ::Config::getInstance().updateBinding(game, subscreen);
         }
-        if (show_subscreen) {
+        auto &auto_subscreen = options.at(launcher::Options::IIDXNoAutoLegacySubscreen);
+        bool disable_auto = auto_subscreen.value_bool();
+        if (ImGui::Checkbox("Disable automatic legacy subscreen", &disable_auto)) {
+            auto_subscreen.value = disable_auto ? "1" : "";
+            ::Config::getInstance().updateBinding(game, auto_subscreen);
+        }
+        if (show_subscreen || (enabled && board == bio2::Board::BI2X && !disable_auto)) {
             auto &backend = options.at(launcher::Options::IIDXLegacyBackend);
             ImGui::InputText("Subscreen backend DLL", &backend.value);
             if (ImGui::IsItemDeactivatedAfterEdit()) {
                 ::Config::getInstance().updateBinding(game, backend);
             }
-            ImGui::TextWrapped("Empty: load the original backend.dll next to Spice.");
+            ImGui::TextWrapped("Empty: use the original backend32.dll or backend64.dll next to Spice.");
             auto &monitor = options.at(launcher::Options::IIDXLegacyMonitor);
             ImGui::InputText("Subscreen monitor (empty = auto)", &monitor.value);
             if (ImGui::IsItemDeactivatedAfterEdit()) {

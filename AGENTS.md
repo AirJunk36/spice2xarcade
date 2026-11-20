@@ -34,7 +34,8 @@
 五路滑条、27 路灯和 Ticker；不伪造 RGB 灯带能力。IO2 必须预先加载正确固件，
 BI2A 必须已安装正确 IIDX 固件，代码不包含固件。
 老游戏副屏通过 `games/iidx/legacy_subscreen.cpp` 接入原项目的 `backend.dll`，
-原界面与触摸路径由其提供。功能默认关闭，启用后 IIDX IO Panel 仍可手动打开。
+原界面与触摸路径由其提供。启用原生 BI2X 且游戏非 TDJ 时，如有同位数的原版 DLL，
+会自动打开老副屏。可关掉自动启动，IIDX IO Panel 仍可手动打开。
 源码与协议来源见 `bio2/PROTOCOLS.md`。macOS 模拟板与布局测试已通过 4/4，
 官方 Docker 内 UBSan 测试通过 4/4；关闭熄灯路径连续四轮验证通过。
 最终 Docker 构建及 Windows 7／XP API 检查均通过，没有新增编译警告。

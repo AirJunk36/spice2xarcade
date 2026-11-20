@@ -1024,10 +1024,13 @@ int main_implementation(int argc, char *argv[]) {
         AUTO_PIN_MACRO_TRIGGER[1] = options[launcher::Options::AutoPinMacroTrigger1].value_text();
     }
 
-    for (auto &reader : options[launcher::Options::ICCAReaderPort].values_text()) {
+    const auto reader_ports = options[launcher::Options::ICCAReaderPort].values_text();
+    const bool discover_reader_chain = eamuse_get_game() == "Beatmania IIDX" &&
+        reader_ports.size() == 1 && !options[launcher::Options::ICCAReaderPortToggle].is_active();
+    for (const auto &reader : reader_ports) {
         static int reader_id = 0;
         if (reader_id < 2) {
-            start_reader_thread(reader, reader_id++);
+            start_reader_thread(reader, reader_id++, discover_reader_chain);
         } else {
             if (!cfg::CONFIGURATOR_STANDALONE) {
                 log_fatal("launcher", "too many readers specified (maximum is 2)");

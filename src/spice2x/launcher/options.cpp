@@ -723,6 +723,17 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
         .picker = OptionPickerType::AsioDriver,
         .quick_setting_category = "Game",
     };
+    c[launcher::Options::IIDXForceAsio] = {
+        .title = "IIDX Force ASIO",
+        .name = "iidxforceasio",
+        .desc = "Route IIDX 18–26 WASAPI audio to an ASIO driver using Spice. "
+            "Prefers Xonar AE. Select IIDX ASIO Driver to choose another device. "
+            "Supports exclusive and event-driven shared streams.",
+        .type = OptionType::Bool,
+        .game_name = "Beatmania IIDX",
+        .category = "Game Options",
+        .quick_setting_category = "Audio",
+    };
     c[launcher::Options::IIDXBI2XNative] = {
         .title = "Native IIDX I/O Hardware",
         .name = "bi2x",
@@ -783,6 +794,14 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
         .game_name = "Beatmania IIDX",
         .category = "Game Options",
     };
+    c[launcher::Options::IIDXNoAutoLegacySubscreen] = {
+        .title = "Disable Automatic IIDX Legacy Subscreen",
+        .name = "iidxnoautolegacysub",
+        .desc = "Turn off automatic legacy subscreen startup with native BI2X in non-TDJ mode.",
+        .type = OptionType::Bool,
+        .game_name = "Beatmania IIDX",
+        .category = "Game Options",
+    };
     c[launcher::Options::IIDXLegacyMonitor] = {
         .title = "IIDX Legacy Subscreen Monitor",
         .name = "iidxlegacymonitor",
@@ -795,7 +814,8 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::IIDXLegacyBackend] = {
         .title = "IIDX Legacy Subscreen Backend",
         .name = "iidxlegacybackend",
-        .desc = "Path to the original backend.dll. Empty: backend.dll next to the Spice executable.",
+        .desc = "Path to the original DLL. Empty: look next to Spice for backend32.dll or "
+            "backend64.dll, then backend.dll.",
         .type = OptionType::Text,
         .game_name = "Beatmania IIDX",
         .category = "Game Options",

@@ -25,6 +25,7 @@ namespace overlay::windows {
     enum class ControllerPage {
         CONTROLLER_PAGE_INVALID,
         CONTROLLER_PAGE_BUTTONS,
+        CONTROLLER_PAGE_BIO2_BUTTONS,
         CONTROLLER_PAGE_KEYPADS,
         CONTROLLER_PAGE_MODIFIERS,
         CONTROLLER_PAGE_ANALOGS,

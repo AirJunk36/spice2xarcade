@@ -1,5 +1,7 @@
 #include "reader.h"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -12,7 +14,7 @@
 #include "structuredmessage.h"
 
 static std::vector<std::thread *> READER_THREADS;
-static bool READER_THREAD_RUNNING = false;
+static std::atomic<bool> READER_THREAD_RUNNING {false};
 
 Reader::Reader(const std::string &port) : port(port) {
 
@@ -49,147 +51,154 @@ bool Reader::is_valid() {
     return this->valid;
 }
 
-bool Reader::initialize() {
-    if (!this->set_comm_state(CBR_57600) || !this->wait_for_handshake())
+bool Reader::initialize(bool discover_chain) {
+    if (!this->set_comm_state(CBR_57600) || !this->wait_for_handshake()) {
         return false;
+    }
 
     log_info("reader", "{}: card reader connected", this->port);
-
-    // assign reader ID
-    std::vector<uint8_t> set_id_data;
-    set_id_data.push_back(0x00);
-    if (this->msg_write_read(StructuredMessage(
-            0,
-            this->reinitialized,
-            READER_CMD_SET_ID,
-            this->gen_msg_id(),
-            set_id_data)).empty()) {
+    const auto assigned = this->msg_write_read(
+        StructuredMessage(0, 0, READER_CMD_SET_ID, this->gen_msg_id(), {0}));
+    if (assigned.empty()) {
         log_warning("reader", "{}: no reply to ACIO address assignment", this->port);
         return false;
     }
 
-    // get version
-    std::vector<Message> ret = this->msg_write_cmd_read(READER_CMD_VERSION);
-    if (ret.empty()) {
-        log_warning("reader", "{}: no reply to ACIO version request", this->port);
+    const auto reply = assigned.back().get_data();
+    const uint8_t node_count = reply.size() == 6 ? reply[5] : 0;
+    this->units[0].address = 1;
+    if (!this->initialize_unit(this->units[0], false)) {
+        return false;
+    }
+    this->unit_count = 1;
+
+    if (discover_chain) {
+        log_info("reader", "{}: ACIO reports {} node(s)", this->port, node_count);
+        if (node_count >= 2) {
+            this->units[1].address = 2;
+            if (this->initialize_unit(this->units[1], true)) {
+                this->unit_count = 2;
+                log_info("reader", "{}: ACIO node 1 is P1, node 2 is P2", this->port);
+            }
+        }
+    }
+
+    return true;
+}
+
+bool Reader::initialize_unit(Unit &unit, bool require_card_model) {
+    auto replies = this->msg_write_cmd_read(unit, READER_CMD_VERSION);
+    if (replies.empty()) {
+        log_warning("reader", "{} node {}: no reply to ACIO version request",
+            this->port, unit.address);
         return false;
     }
 
     // ACIO version fields follow the five-byte packet header.
-    const auto version = ret.back().get_data();
+    const auto version = replies.back().get_data();
     if (version.size() < 17) {
-        log_warning("reader", "{}: short ACIO version reply ({} bytes)", this->port, version.size());
+        log_warning("reader", "{} node {}: short ACIO version reply ({})",
+            this->port, unit.address, version.size());
         return false;
     }
     const std::string model(version.begin() + 13, version.begin() + 17);
-    log_info("reader", "{}: card reader model: {}", this->port, model);
-
-    // init 2
-    if (this->msg_write_cmd_read(READER_CMD_INIT2).empty()) {
-        log_warning("reader", "{}: no reply to ACIO startup", this->port);
+    log_info("reader", "{} node {}: card reader model: {}", this->port, unit.address, model);
+    if (require_card_model && model != "ICCA" && model != "ICCB" && model != "ICCC") {
+        log_warning("reader", "{} node {}: no supported P2 reader", this->port, unit.address);
         return false;
     }
 
-    // reinitialize
-    this->reinitialized = 1;
-    std::vector<uint8_t> reinitialize_data;
-    reinitialize_data.push_back(0x00);
-    if (this->msg_write_cmd_read(READER_CMD_REINITIALIZE, reinitialize_data).empty()) {
-        log_warning("reader", "{}: no reply to card reader initialization", this->port);
+    if (this->msg_write_cmd_read(unit, READER_CMD_INIT2).empty()) {
+        log_warning("reader", "{} node {}: no reply to ACIO startup", this->port, unit.address);
         return false;
     }
 
-    log_info("reader", "{}: card reader init done", this->port);
+    unit.reinitialized = 1;
+    if (this->msg_write_cmd_read(unit, READER_CMD_REINITIALIZE, {0}).empty()) {
+        log_warning("reader", "{} node {}: no reply to card reader initialization",
+            this->port, unit.address);
+        return false;
+    }
+    log_info("reader", "{} node {}: card reader init done", this->port, unit.address);
+    return this->init_crypt(unit);
+}
+
+bool Reader::init_crypt(Unit &unit) {
+    std::vector<uint8_t> game_key(4);
+    for (auto &byte : game_key) {
+        byte = static_cast<uint8_t>(rand());
+    }
+    auto replies = this->msg_write_cmd_read(unit, READER_CMD_KEY_EXCHANGE, game_key);
+    if (replies.empty()) {
+        log_warning("reader", "{} node {}: no reply to encrypted polling setup",
+            this->port, unit.address);
+        return false;
+    }
+    const auto reply = replies.back().get_data();
+    if (reply.size() != 9) {
+        log_warning("reader", "{} node {}: invalid encrypted polling setup reply",
+            this->port, unit.address);
+        return false;
+    }
+    const auto key_from_bytes = [](const uint8_t *bytes) {
+        return (uint32_t{bytes[0]} << 24) | (uint32_t{bytes[1]} << 16) |
+            (uint32_t{bytes[2]} << 8) | bytes[3];
+    };
+    unit.crypt.set_keys(key_from_bytes(reply.data() + 5), key_from_bytes(game_key.data()));
+    log_info("reader", "{} node {}: reader crypt init done", this->port, unit.address);
     return true;
 }
 
-bool Reader::init_crypt() {
-
-    // generate game key
-    std::vector<uint8_t> gk;
-    for (int i = 0; i < 4; i++)
-        gk.push_back((uint8_t) (rand() % 256));
-
-    // reader crypt init
-    std::vector<Message> ret = this->msg_write_cmd_read(READER_CMD_KEY_EXCHANGE, gk);
-    if (ret.empty()) {
-        log_warning("reader", "{}: no reply to encrypted polling setup", this->port);
+bool Reader::read_status(Unit &unit, int player) {
+    auto replies = this->msg_write_cmd_read(unit, READER_CMD_GET_STATUS_ENC, {0x10});
+    if (replies.empty()) {
         return false;
     }
-
-    // validate message
-    Message msg = ret[ret.size() - 1];
-    std::vector<uint8_t> md = msg.get_data();
-    if (md.size() != 9) {
-        log_warning("reader", "{}: invalid encrypted polling setup reply", this->port);
-        return false;
-    }
-
-    // convert keys to int32
-    uint32_t game_key = gk[0] << 24 | gk[1] << 16 | gk[2] << 8 | gk[3];
-    uint32_t reader_key = md[5] << 24 | md[6] << 16 | md[7] << 8 | md[8];
-    log_info("reader", "{}: reader crypt client key: {}", this->port, bin2hex((char *) &gk[0], 4));
-    log_info("reader", "{}: reader crypt reader key: {}", this->port, bin2hex((char *) &md[5], 4));
-
-    // set crypt keys
-    this->crypt.set_keys(reader_key, game_key);
-
-    // crypt done
-    log_info("reader", "{}: reader crypt init done", this->port);
-    return true;
-}
-
-bool Reader::read_card() {
-
-    // read card UID
-    std::vector<uint8_t> status_ruid_data;
-    status_ruid_data.push_back(0x00);
-    status_ruid_data.push_back(0x03);
-    status_ruid_data.push_back(0xFF);
-    status_ruid_data.push_back(0xFF);
-    if (this->msg_write_cmd_read(READER_CMD_RFID_READ_UID, status_ruid_data).empty()) {
-        this->valid = false;
-        return false;
-    }
-    Sleep(200);
-
-    // get reader status
-    std::vector<uint8_t> status_req_data;
-    status_req_data.push_back(0x10);
-    std::vector<Message> ret = this->msg_write_cmd_read(READER_CMD_GET_STATUS_ENC, status_req_data);
-    if (ret.empty()) {
-        this->valid = false;
-        return false;
-    }
-
-    // get data
-    Message status_msg = ret[ret.size() - 1];
-    std::vector<uint8_t> status_data = status_msg.get_data();
-    if (status_data.size() != 23)
-        return false;
-
-    // decrypt data
-    this->crypt.crypt(&status_data[5], 18);
-
-    // check CRC
-    uint16_t crc_old = status_data[21] << 8 | status_data[22];
-    uint16_t crc_new = this->crypt.crc(&status_data[5], 16);
-    if (crc_old != crc_new) {
-        this->valid = false;
-        return false;
-    }
-
-    // get keypad state
-    this->keypad_started = status_data[16];
-    this->keypad_state = status_data[19] << 8 | status_data[20];
-
-    // check for card input
-    if (status_data[5] == 2) {
-        memcpy(this->card_uid, &status_data[7], 8);
+    auto status = replies.back().get_data();
+    if (status.size() != 23) {
         return true;
     }
 
-    return false;
+    unit.crypt.crypt(status.data() + 5, 18);
+    const uint16_t crc = status[21] << 8 | status[22];
+    if (crc != unit.crypt.crc(status.data() + 5, 16)) {
+        return false;
+    }
+
+    unit.keypad_started = status[16];
+    unit.keypad_state = status[19] << 8 | status[20];
+    if (unit.keypad_started > 0) {
+        eamuse_set_keypad_overrides_reader(player, unit.keypad_state);
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    if (status[5] == 2 && now >= unit.next_insert) {
+        std::copy_n(status.data() + 7, unit.card_uid.size(), unit.card_uid.begin());
+        log_info("reader", "{} node {}: reader input for P{}", this->port, unit.address, player + 1);
+        eamuse_card_insert(player, unit.card_uid.data());
+        unit.next_insert = now + std::chrono::milliseconds(2500);
+    }
+    return true;
+}
+
+bool Reader::poll(int first_player) {
+    std::array<bool, 2> pending {};
+    for (size_t i = 0; i < this->unit_count; ++i) {
+        pending[i] = !this->msg_write_cmd_read(this->units[i], READER_CMD_RFID_READ_UID,
+            {0x00, 0x03, 0xff, 0xff}).empty();
+    }
+    Sleep(200);
+    bool ok = true;
+    for (size_t i = 0; i < this->unit_count; ++i) {
+        const auto player = first_player < 0 ? GetKeyState(VK_NUMLOCK) & 1
+            : first_player + static_cast<int>(i);
+        if (!pending[i] || !this->read_status(this->units[i], player)) {
+            log_warning("reader", "{} node {}: card polling failed", this->port,
+                this->units[i].address);
+            ok = false;
+        }
+    }
+    return ok;
 }
 
 bool Reader::set_comm_state(DWORD BaudRate) {
@@ -333,23 +342,23 @@ bool Reader::msg_write(Message msg) {
 }
 
 std::vector<Message> Reader::msg_write_read(Message msg) {
-    this->msg_write(msg);
+    if (!this->msg_write(msg)) {
+        return {};
+    }
     return this->msg_read();
 }
 
-std::vector<Message> Reader::msg_write_cmd_read(uint8_t cmd) {
-    return this->msg_write_cmd_read(cmd, std::vector<uint8_t>());
-}
-
-std::vector<Message> Reader::msg_write_cmd_read(uint8_t cmd, std::vector<uint8_t> data) {
-    this->msg_write(StructuredMessage(
-            this->node,
-            this->reinitialized,
-            cmd,
-            this->gen_msg_id(),
-            data
-    ));
-    return this->msg_read();
+std::vector<Message> Reader::msg_write_cmd_read(
+        const Unit &unit, uint8_t cmd, const std::vector<uint8_t> &data) {
+    const auto packet_id = this->gen_msg_id();
+    auto replies = this->msg_write_read(
+        StructuredMessage(unit.address, unit.reinitialized, cmd, packet_id, data));
+    // Commands are serialized on one port. Ignore echoes and stale replies from other nodes.
+    std::erase_if(replies, [&](const Message &reply) {
+        const auto &bytes = reply.get_data();
+        return bytes[0] != (unit.address | 0x80) || bytes[2] != cmd || bytes[3] != packet_id;
+    });
+    return replies;
 }
 
 std::vector<Message> Reader::msg_read() {
@@ -421,57 +430,23 @@ std::vector<Message> Reader::msg_read() {
     return msgs;
 }
 
-void start_reader_thread(const std::string &port, int id) {
+void start_reader_thread(const std::string &port, int id, bool discover_chain) {
     READER_THREAD_RUNNING = true;
-    READER_THREADS.push_back(new std::thread([port, id]() {
+    READER_THREADS.push_back(new std::thread([port, id, discover_chain]() {
         log_info("reader", "{}: starting reader thread", port);
 
         while (READER_THREAD_RUNNING) {
-
-            // create reader
             Reader reader(port);
-
-            // check if serial handle is still valid
-            if (!reader.is_valid()) {
-                log_warning("reader", "{}: serial handle no longer valid", port);
-            } else if (!reader.initialize()) {
-                log_warning("reader", "{}: unable to initialize reader", port);
-            } else if (reader.init_crypt()) {
-
-                // reader loop
-                while (READER_THREAD_RUNNING && reader.is_valid()) {
-                    bool did_read_card = reader.read_card();
-
-                    if (did_read_card) {
-                        const uint8_t *uid = reader.get_card_uid();
-                        log_info("reader", "{}: reader input: {}", port, bin2hex(uid, 8));
-                        if (id >= 0) {
-                            eamuse_card_insert(id, uid);
-                        } else {
-                            eamuse_card_insert(GetKeyState(VK_NUMLOCK) & 1, uid);
-                        }
-                    }
-
-                    if (reader.keypad_started > 0) {
-                        if (id >= 0) {
-                            eamuse_set_keypad_overrides_reader(id, reader.keypad_state);
-                        } else {
-                            auto unit = GetKeyState(VK_NUMLOCK) & 1;
-                            eamuse_set_keypad_overrides_reader(unit, reader.keypad_state);
-                        }
-                    }
-
-                    if (did_read_card) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-                    }
-
+            if (reader.is_valid() && reader.initialize(discover_chain)) {
+                while (READER_THREAD_RUNNING && reader.poll(id)) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(20));
                 }
+            } else {
+                log_warning("reader", "{}: unable to initialize reader", port);
             }
-
-            // sleep between reader connection retries
-            if (READER_THREAD_RUNNING)
+            if (READER_THREAD_RUNNING) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+            }
         }
     }));
 

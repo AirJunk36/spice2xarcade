@@ -79,7 +79,7 @@ namespace games::iidx {
     void set_16seg(const char *text);
     const char* get_16seg();
     bool is_tdj_fhd();
-    void apply_audio_hacks();
+    void apply_audio_hacks(bool force_asio);
 
     void update_io_emulation_state(iidx_aio_emulation_state state);
 }

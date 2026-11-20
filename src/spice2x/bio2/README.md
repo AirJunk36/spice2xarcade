@@ -1,6 +1,7 @@
 # Native IIDX cabinet I/O and legacy subscreen
 
-The IIDX controller pages are **BIO2 Buttons** and **BIO2 Lights**. They configure
+IIDX and SDVX use the standard **Buttons** page for binding inputs.
+In IIDX, the separate **BIO2 Buttons** and **BIO2 Lights** pages configure
 the physical board independently of the game's I/O interface and LDJ/TDJ mode.
 The physical board can be **BI2X**, **BI2A**, or **IO2 / EZUSB FX2**.
 
@@ -100,11 +101,13 @@ Spice can load the original [iidx_btools_subscreen](https://github.com/cloud1166
    provides x86. For `spice64.exe`, use the original project's x64 artifact if
    available, or build its `x64-release` preset on Windows with Visual Studio
    and vcpkg. The published DLL also needs the matching Visual C++ Redistributable.
-2. Put only `backend.dll` next to the Spice executable, or set **Subscreen backend
-   DLL** to its full path. The BemaniTools shim DLLs and injector are unnecessary.
-3. Enable **Legacy subscreen (next game launch)** in BIO2 settings, or pass
-   `-iidxlegacysub`. The first display other than the game's display is selected
-   by default. To choose one, set `-iidxlegacymonitor \\.\DISPLAY2`.
+2. Put the matching `backend32.dll` or `backend64.dll` next to Spice. A file
+   named `backend.dll` also works, or set **Subscreen backend DLL** to its full
+   path. The original window and touch handler both come from this DLL.
+3. Native BI2X in non-TDJ mode opens the legacy subscreen automatically when
+   the DLL is available. Use `-iidxnoautolegacysub` to disable automatic startup,
+   or `-iidxlegacysub` to request it explicitly. To override the first display
+   other than the game's display, set `-iidxlegacymonitor \\.\DISPLAY2`.
 
 The original window supplies both keypads, the nine-character Ticker, five
 effect sliders, and its card menu. The backend's coin control is available
@@ -128,11 +131,26 @@ routing, display selection and game startup.
 - The ICCC reader has its own ACIO serial connection. With the reader physically
   connected to COM1, set **NFC Card Readers → ICCA Reader Port** to `COM1`
   (`-reader COM1`). The reader and native BI2X board need distinct physical
-  ports. Look for `card reader init done` in the log. If a card reaches Spice but
-  the game does not respond, look for `reader input` without sharing the UID.
+  ports. With one configured reader port, IIDX checks for a second ACIO reader
+  at node 2 and routes the two nodes to P1/P2. For separate physical ports, pass
+  `-reader COM1 -reader COMn` in P1/P2 order. The log reports the assigned nodes
+  and the player for each swipe.
 - For crackling with WASAPI Exclusive, try `-exclusivebuffer 10`, then
   `-exclusivebuffer 20` if needed. A larger buffer adds audio latency.
   For ASIO, use the driver's buffer setting instead.
+
+## Optional ASIO for IIDX 18–26
+Enable **IIDX Force ASIO** in the Game Options or pass `-iidxforceasio`.
+Spice prefers the Xonar driver registered for the executable's bitness.
+To select another driver, use **IIDX ASIO Driver**. A driver selected in the
+existing **WASAPI Exclusive to ASIO Conversion** option takes precedence.
+
+This uses the existing ASIO backend for WASAPI exclusive audio and shared
+audio with event callbacks. DirectSound is outside this conversion path.
+The flag overrides the shared/low-latency WASAPI switches only when a
+matching ASIO driver can be selected. Look for `Forcing IIDX WASAPI audio`
+and `audio::asio` in the startup log. The ASIO driver controls its own buffer
+size. Hardware playback and round-trip latency still require cabinet testing.
 
 ## Validation
 

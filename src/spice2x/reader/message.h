@@ -18,7 +18,7 @@ public:
 
     std::vector<uint8_t> get_data_encoded();
 
-    inline std::vector<uint8_t> get_data() { return data; }
+    const std::vector<uint8_t> &get_data() const { return data; }
 
     void print_debug();
 };

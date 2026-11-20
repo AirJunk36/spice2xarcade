@@ -200,7 +200,13 @@ namespace games::iidx {
                 return {};
             }
             executable.resize(length);
-            return std::filesystem::path(executable).parent_path() / L"backend.dll";
+            const auto folder = std::filesystem::path(executable).parent_path();
+            const auto named = folder / (sizeof(void *) == 8 ? L"backend64.dll" : L"backend32.dll");
+            if (std::filesystem::is_regular_file(named, error)) {
+                return named;
+            }
+            error.clear();
+            return folder / L"backend.dll";
         }
 
         class Subscreen {
@@ -271,19 +277,7 @@ namespace games::iidx {
                 }
             }
 
-            void run(const std::string &monitor, const std::string &path) {
-                if (!GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetPointerInfo")) {
-                    log_warning("iidx::subscreen", "The original subscreen requires Windows 8 or newer");
-                    return;
-                }
-                std::error_code error;
-                const auto file = backend_path(path, error);
-                if (file.empty() || error || !std::filesystem::is_regular_file(file, error)) {
-                    log_warning("iidx::subscreen",
-                        "Original backend.dll not found: {}. Set -iidxlegacybackend.", file);
-                    return;
-                }
-
+            void run(const std::string &monitor, const std::filesystem::path &file) {
                 HWND hwnd = nullptr;
                 log_info("iidx::subscreen", "Waiting for the IIDX game window");
                 while ((hwnd = find_window(true)) == nullptr) {
@@ -346,7 +340,7 @@ namespace games::iidx {
         public:
             ~Subscreen() { stop(); }
 
-            void start(std::string monitor, std::string path) {
+            void start(std::string monitor, std::filesystem::path path) {
                 if (worker.joinable() || module) {
                     return;
                 }
@@ -378,8 +372,21 @@ namespace games::iidx {
         }
     }
 
-    void legacy_subscreen_start(const std::string &monitor, const std::string &path) {
-        subscreen().start(monitor, path);
+    bool legacy_subscreen_start(const std::string &monitor, const std::string &path) {
+        if (!GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetPointerInfo")) {
+            log_warning("iidx::subscreen", "The original subscreen requires Windows 8 or newer");
+            return false;
+        }
+        std::error_code error;
+        const auto file = backend_path(path, error);
+        if (file.empty() || error || !std::filesystem::is_regular_file(file, error)) {
+            log_warning("iidx::subscreen",
+                "Original {}-bit backend DLL not found. Set -iidxlegacybackend or put "
+                "backend.dll next to Spice.", sizeof(void *) * 8);
+            return false;
+        }
+        subscreen().start(monitor, file);
+        return true;
     }
 
     void legacy_subscreen_stop() {

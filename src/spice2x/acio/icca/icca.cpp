@@ -3,6 +3,7 @@
 
 #include "avs/game.h"
 #include "misc/eamuse.h"
+#include "util/logging.h"
 #include "util/time.h"
 
 // settings
@@ -74,6 +75,10 @@ static ICCA_UNIT ICCA_UNITS[2] {};
 static bool IS_LAST_CARD_FELICA = false;
 static bool STATUS_BUFFER_FREEZE = false;
 static double CARD_TIMEOUT = 2.0;
+
+static bool is_iidx_tricoro() {
+    return avs::game::is_model("LDJ") && avs::game::is_ext(2012091900, 2013111200);
+}
 
 static inline int icca_get_active_count() {
     int active_count = 0;
@@ -176,8 +181,15 @@ static inline void update_card(int unit_id) {
         }
     } else {
         unit->card_cmd_pressed = false;
-        unit->state = CLOSE_EJECT;
-        if (fabs(get_performance_seconds() - unit->card_in_time) > CARD_TIMEOUT) {
+        const bool expired = fabs(get_performance_seconds() - unit->card_in_time) > CARD_TIMEOUT;
+        // Tricoro polls status again before requesting the UID. Keep its card visible across
+        // those polls so the next status call doesn't erase the insertion edge.
+        const bool reading = is_iidx_tricoro() && unit->card_in && !expired &&
+            (unit->state == ACTIVE || unit->state == GET_USERID);
+        if (!reading) {
+            unit->state = CLOSE_EJECT;
+        }
+        if (expired) {
             unit->card_in = false;
             memset(unit->status.uid, 0, 8);
             if (unit->state_jdz == ACTIVE || unit->state_jdz == GET_USERID) {
@@ -440,6 +452,9 @@ static int __cdecl ac_io_icca_req_uid_isfinished(int unit_id, DWORD *read_state)
     if (unit->card_in) {
         if (fabs(get_performance_seconds() - unit->card_in_time) < CARD_TIMEOUT) {
             unit->state = END;
+            if (is_iidx_tricoro()) {
+                log_info("icca", "Tricoro P{} accepted the reader UID request", unit_id + 1);
+            }
         } else {
             unit->state = ERR_GETUID;
         }
