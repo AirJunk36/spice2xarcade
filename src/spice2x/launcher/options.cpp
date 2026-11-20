@@ -778,7 +778,7 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::IIDXLegacySubscreen] = {
         .title = "IIDX Legacy Cabinet Subscreen",
         .name = "iidxlegacysub",
-        .desc = "Show dual keypads, LED ticker and five effect sliders on a separate monitor for older IIDX games.",
+        .desc = "Use the original iidx_btools_subscreen backend for keypads, ticker and effects.",
         .type = OptionType::Bool,
         .game_name = "Beatmania IIDX",
         .category = "Game Options",
@@ -786,11 +786,20 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::IIDXLegacyMonitor] = {
         .title = "IIDX Legacy Subscreen Monitor",
         .name = "iidxlegacymonitor",
-        .desc = "Display device name for the legacy subscreen. Empty: first non-primary monitor.",
+        .desc = "Display device name for the legacy subscreen. Empty: first monitor other than the game display.",
         .type = OptionType::Text,
         .game_name = "Beatmania IIDX",
         .category = "Game Options",
         .picker = OptionPickerType::Monitor,
+    };
+    c[launcher::Options::IIDXLegacyBackend] = {
+        .title = "IIDX Legacy Subscreen Backend",
+        .name = "iidxlegacybackend",
+        .desc = "Path to the original backend.dll. Empty: backend.dll next to the Spice executable.",
+        .type = OptionType::Text,
+        .game_name = "Beatmania IIDX",
+        .category = "Game Options",
+        .picker = OptionPickerType::FilePath,
     };
     c[launcher::Options::IIDXBIO2FW] = {
         .title = "IIDX BIO2 Firmware Update",
@@ -1904,14 +1913,14 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::ICCAReaderPort] = {
         .title = "ICCA Reader Port",
         .name = "reader",
-        .desc = "Connects to and uses a ICCA on a given COM port.",
+        .desc = "Connects to an ACIO card reader, such as an ICCC, on a physical COM port.",
         .type = OptionType::Text,
         .category = "NFC Card Readers",
     };
     c[launcher::Options::ICCAReaderPortToggle] = {
         .title = "ICCA Reader Port (with toggle)",
         .name = "togglereader",
-        .desc = "Connects to and uses a ICCA on a given COM port, and enabled NumLock toggling between P1/P2.",
+        .desc = "Connects to an ACIO card reader on a physical COM port. Num Lock selects P1 or P2.",
         .type = OptionType::Text,
         .category = "NFC Card Readers",
     };

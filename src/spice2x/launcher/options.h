@@ -82,6 +82,7 @@ namespace launcher {
             IIDXBIO2Board,
             IIDXLegacySubscreen,
             IIDXLegacyMonitor,
+            IIDXLegacyBackend,
             IIDXTDJMode,
             spice2x_IIDXDigitalTTSensitivity,
             IIDXDigitalTTSocd,

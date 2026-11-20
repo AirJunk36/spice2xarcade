@@ -504,7 +504,8 @@ namespace games {
         names.emplace_back("Insert Coin");
         vkey_defaults.push_back(VK_F1);
         names.emplace_back("Toggle IO Panel");
-        vkey_defaults.push_back(VK_F2);
+        // Require an explicit binding for IIDX so startup input cannot use the default shortcut.
+        vkey_defaults.push_back(game == "Beatmania IIDX" ? 0xFF : VK_F2);
         names.emplace_back("Toggle Config");
         vkey_defaults.push_back(VK_F4);
         names.emplace_back("Toggle Virtual Keypad P1");

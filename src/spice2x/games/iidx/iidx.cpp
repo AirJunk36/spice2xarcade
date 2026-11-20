@@ -468,6 +468,10 @@ namespace games::iidx {
         Game::pre_attach();
         auto options = games::get_options(eamuse_get_game());
         if (options->at(launcher::Options::IIDXBI2XNative).value_bool()) {
+            if (options->at(launcher::Options::EnableDevicePassthrough).value_bool()) {
+                log_warning("iidx", "Disable device passthrough for native BIO2 routing. "
+                    "Older IIDX games require the emulated FM serial or EZUSB interface.");
+            }
             if (!bio2::configure_tape_routes(
                     options->at(launcher::Options::IIDXBI2XTapeMap).value_text())) {
                 log_warning("bio2", "Invalid tape routing configuration; using identity routes");
@@ -486,7 +490,9 @@ namespace games::iidx {
         }
 
         if (options->at(launcher::Options::IIDXLegacySubscreen).value_bool()) {
-            legacy_subscreen_start(options->at(launcher::Options::IIDXLegacyMonitor).value_text());
+            legacy_subscreen_start(
+                options->at(launcher::Options::IIDXLegacyMonitor).value_text(),
+                options->at(launcher::Options::IIDXLegacyBackend).value_text());
         }
 
         // environment variables must be set before the DLL is loaded as the VC++ runtime copies all
@@ -873,6 +879,13 @@ namespace games::iidx {
 
     const char* get_16seg() {
         return IIDXIO_LED_TICKER;
+    }
+
+    std::array<char, 10> legacy_subscreen_ticker() {
+        std::array<char, 10> ticker {};
+        std::lock_guard<std::mutex> lock(IIDX_LED_TICKER_LOCK);
+        std::copy_n(IIDXIO_LED_TICKER, 9, ticker.begin());
+        return ticker;
     }
 
     void set_16seg(const char *text) {

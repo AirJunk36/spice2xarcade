@@ -1,6 +1,5 @@
 #include "bio2/legacy.h"
 #include "bio2/io2.h"
-#include "games/iidx/legacy_panel.h"
 
 #include <chrono>
 #include <cmath>
@@ -27,19 +26,6 @@ template<class F> static bool wait_for(F predicate, int milliseconds) {
 }
 
 static void contract() {
-    games::iidx::legacy_panel::State panel;
-    panel.touch(1, 60, 250, true, false); // P1: 7
-    panel.touch(2, 910, 430, true, false); // P2: 1
-    check(panel.keys[0] == (1u << 3) && panel.keys[1] == (1u << 1),
-        "independent dual-player touches");
-    panel.touch(1, 60, 250, false, true);
-    check(panel.keys[0] == 0 && panel.keys[1] == (1u << 1), "release only one touch");
-    panel.touch(3, 460, 260, true, false);
-    check(panel.sliders[0] == 15, "slider top endpoint");
-    panel.touch(3, 460, 900, false, false);
-    check(panel.sliders[0] == 0, "slider drag clamps outside bounds");
-    panel.release();
-    check(panel.keys[0] == 0 && panel.keys[1] == 0, "panel cancellation releases keypad");
     using bio2::Board;
     Board board = Board::IO2;
     check(bio2::parse_board("", board) && board == Board::BI2X, "default board compatibility");

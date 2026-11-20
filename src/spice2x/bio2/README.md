@@ -90,36 +90,49 @@ runs on a dedicated worker; game input reads use cached snapshots. ACIO framing
 uses fixed buffers, its reply storage is reused, and IO2 reuses its completion
 event. Normal BI2X tape updates do not allocate temporary vectors.
 
-## Independent subscreen for old games
+## Original subscreen for old games
 
-Enable **Legacy subscreen (next game launch)** in BIO2 settings, or pass:
+Spice can load the original [iidx_btools_subscreen](https://github.com/cloud11665/iidx_btools_subscreen)
+`backend.dll` and provide game I/O to its existing UI and Windows pointer hook.
 
-```
--iidxlegacysub
-```
+1. Use a DLL built for the same architecture as Spice. The author's
+   [v0.2.0 release](https://github.com/cloud11665/iidx_btools_subscreen/releases/tag/v0.2.0)
+   provides x86. For `spice64.exe`, use the original project's x64 artifact if
+   available, or build its `x64-release` preset on Windows with Visual Studio
+   and vcpkg. The published DLL also needs the matching Visual C++ Redistributable.
+2. Put only `backend.dll` next to the Spice executable, or set **Subscreen backend
+   DLL** to its full path. The BemaniTools shim DLLs and injector are unnecessary.
+3. Enable **Legacy subscreen (next game launch)** in BIO2 settings, or pass
+   `-iidxlegacysub`. The first display other than the game's display is selected
+   by default. To choose one, set `-iidxlegacymonitor \\.\DISPLAY2`.
 
-An independent borderless window fills the first non-primary display. Use
-`-iidxlegacymonitor \\.\DISPLAY2` to select a display explicitly. If no matching
-secondary display exists, the feature logs a warning and leaves the main screen
-alone. The window does not activate when touched or clicked.
+The original window supplies both keypads, the nine-character Ticker, five
+effect sliders, and its card menu. The backend's coin control is available
+when the DLL exports `backend_vefxio_io_recv`. Original touch handling uses Windows
+pointer messages and requires Windows 8 or newer. Spice keeps existing analog
+bindings until the corresponding screen slider changes. Once the subscreen
+closes, game input returns to normal bindings. The IIDX IO Panel can be opened
+manually and does not auto-open when launching with the legacy subscreen. IIDX
+has no default I/O panel hotkey. Assign one under **Toggle IO Panel** if needed.
 
-It displays two independent keypads (including card insertion), the game's
-nine-character Ticker using the existing DSEG font, and VEFX, Low-EQ, Hi-EQ,
-Filter and Play Volume sliders. Touch coordinates are converted from the actual
-monitor to the panel layout. Multiple contacts can operate the two players
-independently; cancelling or closing releases all keypad inputs. Windows 7+
-touch functions are loaded dynamically; mouse input is the fallback on XP.
-A slider takes control after its first touch; closing restores normal analog
-bindings. Display and DPI changes reposition the panel on its selected monitor; removing
-that monitor closes the panel. Restart the game after reconnecting it. Static frames are not repainted continuously.
+The initial game scope remains **IIDX 18–26**. The reference project lists
+12–24, and the Spice bridge and 25–26 still need cabinet testing, including touch
+routing, display selection and game startup.
 
-The panel is for games using the legacy keypad/slider interfaces. It does not
-convert a modern TDJ game's native touchscreen UI to legacy keypad input.
+## IIDX 26 cabinet troubleshooting
 
-The initial game scope remains **IIDX 18–26**; 9–17 is excluded. Physical cabinet
-acceptance, real touch/focus behavior and individual game startup compatibility
-must still be verified on Windows hardware. Portable tests and cross-compilation
-do not prove those results.
+- Leave **Enable Device Passthrough** off with native BIO2 routing. The game
+  still needs Spice's virtual FM serial interface on COM2. If you see
+  `ERROR (FM SERIALPORT OPEN)`, check for `-devicehookdisable` in launch arguments
+  and saved options.
+- The ICCC reader has its own ACIO serial connection. With the reader physically
+  connected to COM1, set **NFC Card Readers → ICCA Reader Port** to `COM1`
+  (`-reader COM1`). The reader and native BI2X board need distinct physical
+  ports. Look for `card reader init done` in the log. If a card reaches Spice but
+  the game does not respond, look for `reader input` without sharing the UID.
+- For crackling with WASAPI Exclusive, try `-exclusivebuffer 10`, then
+  `-exclusivebuffer 20` if needed. A larger buffer adds audio latency.
+  For ASIO, use the driver's buffer setting instead.
 
 ## Validation
 
@@ -138,8 +151,7 @@ simulator checks ACIO framing, checksums, sequence validation, node discovery an
 sub-I/O initialization. IO2 tests exercise the actual polling and packet codec
 through a POSIX endpoint simulator; the CyUSB3 kernel driver is compile-checked,
 not executed on macOS. All three test lamps, temporary testing, blackout and
-input release. Portable panel tests cover independent player touches, release
-and slider limits.
+input release.
 Windows 32/64-bit driver builds and changed application translation units are
 checked separately. The standard release build remains `./build_docker.sh`.
 

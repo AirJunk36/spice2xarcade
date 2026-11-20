@@ -39,7 +39,7 @@ Reader::Reader(const std::string &port) : port(port) {
 }
 
 Reader::~Reader() {
-    if (this->serial_handle) {
+    if (this->serial_handle != INVALID_HANDLE_VALUE) {
         CloseHandle(this->serial_handle);
         log_info("reader", "closed reader on {}", this->port);
     }
@@ -63,36 +63,41 @@ bool Reader::initialize() {
             this->reinitialized,
             READER_CMD_SET_ID,
             this->gen_msg_id(),
-            set_id_data)).empty())
+            set_id_data)).empty()) {
+        log_warning("reader", "{}: no reply to ACIO address assignment", this->port);
         return false;
+    }
 
     // get version
     std::vector<Message> ret = this->msg_write_cmd_read(READER_CMD_VERSION);
-    if (ret.empty())
+    if (ret.empty()) {
+        log_warning("reader", "{}: no reply to ACIO version request", this->port);
         return false;
+    }
 
-    // print version info
-    std::vector<uint8_t> version_data = ret[ret.size() - 1].get_data();
-    std::ostringstream model;
-    model << version_data[13] << version_data[14] << version_data[15] << version_data[16];
-    log_info("reader", "{}: card reader model: {}", this->port, model.str());
-    std::ostringstream date;
-    date << (const char *) &version_data[17];
-    log_info("reader", "{}: card reader date:  {}", this->port, date.str());
-    std::ostringstream clock;
-    clock << (const char *) &version_data[33];
-    log_info("reader", "{}: card reader clock: {}", this->port, clock.str());
+    // ACIO version fields follow the five-byte packet header.
+    const auto version = ret.back().get_data();
+    if (version.size() < 17) {
+        log_warning("reader", "{}: short ACIO version reply ({} bytes)", this->port, version.size());
+        return false;
+    }
+    const std::string model(version.begin() + 13, version.begin() + 17);
+    log_info("reader", "{}: card reader model: {}", this->port, model);
 
     // init 2
-    if (this->msg_write_cmd_read(READER_CMD_INIT2).empty())
+    if (this->msg_write_cmd_read(READER_CMD_INIT2).empty()) {
+        log_warning("reader", "{}: no reply to ACIO startup", this->port);
         return false;
+    }
 
     // reinitialize
     this->reinitialized = 1;
     std::vector<uint8_t> reinitialize_data;
     reinitialize_data.push_back(0x00);
-    if (this->msg_write_cmd_read(READER_CMD_REINITIALIZE, reinitialize_data).empty())
+    if (this->msg_write_cmd_read(READER_CMD_REINITIALIZE, reinitialize_data).empty()) {
+        log_warning("reader", "{}: no reply to card reader initialization", this->port);
         return false;
+    }
 
     log_info("reader", "{}: card reader init done", this->port);
     return true;
@@ -107,14 +112,18 @@ bool Reader::init_crypt() {
 
     // reader crypt init
     std::vector<Message> ret = this->msg_write_cmd_read(READER_CMD_KEY_EXCHANGE, gk);
-    if (ret.empty())
+    if (ret.empty()) {
+        log_warning("reader", "{}: no reply to encrypted polling setup", this->port);
         return false;
+    }
 
     // validate message
     Message msg = ret[ret.size() - 1];
     std::vector<uint8_t> md = msg.get_data();
-    if (md.size() != 9)
+    if (md.size() != 9) {
+        log_warning("reader", "{}: invalid encrypted polling setup reply", this->port);
         return false;
+    }
 
     // convert keys to int32
     uint32_t game_key = gk[0] << 24 | gk[1] << 16 | gk[2] << 8 | gk[3];
@@ -197,6 +206,15 @@ bool Reader::set_comm_state(DWORD BaudRate) {
     serial_params.ByteSize = 8;
     serial_params.StopBits = ONESTOPBIT;
     serial_params.Parity = NOPARITY;
+    // The ACIO reader cable only carries TX, RX and ground. Don't inherit flow
+    // control from the Windows COM port settings.
+    serial_params.fBinary = TRUE;
+    serial_params.fParity = FALSE;
+    serial_params.fOutxCtsFlow = FALSE;
+    serial_params.fOutxDsrFlow = FALSE;
+    serial_params.fDsrSensitivity = FALSE;
+    serial_params.fOutX = FALSE;
+    serial_params.fInX = FALSE;
     if (!SetCommState(this->serial_handle, &serial_params)) {
         log_warning("reader", "{}: unable to set COM port state: 0x{:x}", this->port, GetLastError());
         return false;
@@ -234,7 +252,9 @@ bool Reader::wait_for_handshake() {
     // try all the baud rates
     for (size_t i = 0; i < 4; i++) {
 
-        this->set_comm_state(baud_rates[i]);
+        if (!this->set_comm_state(baud_rates[i])) {
+            continue;
+        }
 
         // handshake loop
         for (size_t n = 0; n < 10; n++) {

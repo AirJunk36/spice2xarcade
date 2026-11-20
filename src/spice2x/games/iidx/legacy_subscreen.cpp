@@ -1,403 +1,394 @@
 #include "legacy_subscreen.h"
-#include "legacy_panel.h"
-#include "iidx.h"
 
 #include <windows.h>
-#include <windowsx.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
-#include <future>
+#include <chrono>
+#include <condition_variable>
+#include <cstring>
+#include <filesystem>
 #include <mutex>
 #include <thread>
 
-#include "build/resource.h"
+#include "misc/eamuse.h"
+#include "util/detour.h"
 #include "util/logging.h"
-#include "util/resutils.h"
 
 namespace games::iidx {
     namespace {
-        std::array<std::atomic<uint16_t>, 2> keypad;
-        std::array<std::atomic<int>, 5> slider {{-1, -1, -1, -1, -1}};
+        using namespace std::chrono_literals;
 
-        // Keep the binary compatible with XP; touch entry points are optional.
-        struct TouchInput {
-            LONG x, y;
-            HANDLE source;
-            DWORD id, flags, mask, time;
-            ULONG_PTR extra;
-            DWORD width, height;
+        constexpr char WINDOW_CLASS[] = "BM2DX_SUBMON_TOUCH";
+        constexpr uint64_t COIN_BIT = 1ull << 29;
+
+        std::array<std::atomic<uint16_t>, 2> keypad {};
+        std::array<std::atomic<int>, 5> sliders {{-1, -1, -1, -1, -1}};
+        std::atomic<HWND> game_window {nullptr};
+        std::atomic<HMONITOR> display_override {nullptr};
+        std::atomic<HHOOK> pointer_hook {nullptr};
+
+        struct WindowSearch {
+            bool game;
+            HWND window = nullptr;
         };
-        using RegisterTouch = BOOL (WINAPI *)(HWND, ULONG);
-        using GetTouch = BOOL (WINAPI *)(HANDLE, UINT, TouchInput *, int);
-        using CloseTouch = BOOL (WINAPI *)(HANDLE);
+
+        BOOL CALLBACK find_window_callback(HWND window, LPARAM data) {
+            auto &search = *reinterpret_cast<WindowSearch *>(data);
+            DWORD pid = 0;
+            GetWindowThreadProcessId(window, &pid);
+            if (pid != GetCurrentProcessId() || !IsWindowVisible(window)) {
+                return TRUE;
+            }
+
+            char name[256] {};
+            GetClassNameA(window, name, sizeof(name));
+            const bool matches = search.game
+                ? (std::strncmp(name, "beatmaniaIIDX", 13) == 0 ||
+                    std::strncmp(name, "beatmania IIDX", 14) == 0 ||
+                    std::strncmp(name, "C02", 3) == 0)
+                : std::strcmp(name, WINDOW_CLASS) == 0;
+            if (!matches) {
+                return TRUE;
+            }
+
+            search.window = window;
+            return FALSE;
+        }
+
+        HWND find_window(bool game) {
+            WindowSearch search {game};
+            EnumWindows(find_window_callback, reinterpret_cast<LPARAM>(&search));
+            return search.window;
+        }
 
         struct MonitorSearch {
-            std::string name;
-            MONITORINFOEXA result {};
-            bool found = false;
+            HMONITOR main;
+            const std::string &name;
+            HMONITOR monitor = nullptr;
         };
 
-        BOOL CALLBACK find_monitor(HMONITOR monitor, HDC, LPRECT, LPARAM context) {
-            auto &search = *reinterpret_cast<MonitorSearch *>(context);
+        BOOL CALLBACK find_monitor(HMONITOR monitor, HDC, LPRECT, LPARAM data) {
+            auto &search = *reinterpret_cast<MonitorSearch *>(data);
             MONITORINFOEXA info {};
             info.cbSize = sizeof(info);
-            if (GetMonitorInfoA(monitor, &info) &&
-                    (search.name.empty() ? !(info.dwFlags & MONITORINFOF_PRIMARY)
-                        : search.name == info.szDevice)) {
-                search.result = info;
-                search.found = true;
+            if (monitor != search.main && GetMonitorInfoA(monitor, &info) &&
+                    (search.name.empty() || search.name == info.szDevice)) {
+                search.monitor = monitor;
                 return FALSE;
             }
             return TRUE;
         }
 
+        struct MonitorCallback {
+            MONITORENUMPROC callback;
+            LPARAM data;
+        };
+
+        BOOL CALLBACK selected_monitor(HMONITOR monitor, HDC dc, LPRECT rect, LPARAM data) {
+            const auto &next = *reinterpret_cast<MonitorCallback *>(data);
+            return monitor != display_override.load() || next.callback(monitor, dc, rect, next.data);
+        }
+
+        BOOL WINAPI enum_subscreen_monitor(HDC dc, LPCRECT clip, MONITORENUMPROC callback, LPARAM data) {
+            MonitorCallback next {callback, data};
+            return EnumDisplayMonitors(dc, clip, selected_monitor, reinterpret_cast<LPARAM>(&next));
+        }
+
+        BOOL WINAPI enum_game_window(WNDENUMPROC callback, LPARAM data) {
+            const auto hwnd = game_window.load();
+            return !IsWindow(hwnd) || callback(hwnd, data);
+        }
+
+        using PointerMode = BOOL (WINAPI *)(BOOL);
+        using PointerModeEnabled = BOOL (WINAPI *)();
+
+        BOOL WINAPI enable_pointer_mode(BOOL enable) {
+            const auto user32 = GetModuleHandleW(L"user32.dll");
+            const auto active = reinterpret_cast<PointerModeEnabled>(
+                GetProcAddress(user32, "IsMouseInPointerEnabled"));
+            const auto set = reinterpret_cast<PointerMode>(
+                GetProcAddress(user32, "EnableMouseInPointer"));
+            return (enable && active && active()) || (set && set(enable));
+        }
+
+        HHOOK WINAPI install_pointer_hook(int type, HOOKPROC callback, HINSTANCE instance, DWORD id) {
+            const auto hook = SetWindowsHookExA(type, callback, instance, id);
+            if (type == WH_GETMESSAGE) {
+                pointer_hook = hook;
+            }
+            return hook;
+        }
+
+        template<auto system_parameters>
+        BOOL WINAPI set_subscreen_parameters(UINT action, UINT param, PVOID value, UINT flags) {
+            // Keep the optional backend from changing desktop-wide touch feedback.
+            if (action == 0x1049 || action == 0x104b) {
+                return TRUE; // SPI_SETCONTACTVISUALIZATION / SPI_SETGESTUREVISUALIZATION
+            }
+            return system_parameters(action, param, value, flags);
+        }
+
+        BOOL WINAPI keep_game_thread_priority(HANDLE, int) {
+            return TRUE;
+        }
+
+        void configure_backend(HMODULE module, bool explicit_monitor) {
+            // The upstream backend initializes its touch/window code after a startup delay.
+            detour::iat_try("EnumWindows", enum_game_window, module);
+            if (explicit_monitor) {
+                detour::iat_try("EnumDisplayMonitors", enum_subscreen_monitor, module);
+            }
+            detour::iat_try("EnableMouseInPointer", enable_pointer_mode, module);
+            detour::iat_try("SetWindowsHookExA", install_pointer_hook, module);
+            detour::iat_try("SystemParametersInfoA", set_subscreen_parameters<SystemParametersInfoA>,
+                module);
+            detour::iat_try("SystemParametersInfoW", set_subscreen_parameters<SystemParametersInfoW>,
+                module);
+            detour::iat_try("SetThreadPriority", keep_game_thread_priority, module);
+        }
+
+        template<class T>
+        T load_export(HMODULE module, const char *name) {
+            // PE exports use the same C ABI as the upstream BemaniTools wrappers.
+            return reinterpret_cast<T>(GetProcAddress(module, name));
+        }
+
+        struct Backend {
+            using Init = void (__cdecl *)();
+            using Ticker = bool (__cdecl *)(const char *);
+            using Read = uint8_t (__cdecl *)(uint8_t);
+            using Keypad = uint16_t (__cdecl *)(uint8_t);
+            using Pad = bool (__cdecl *)(uint64_t *);
+            using Card = uint8_t (__cdecl *)(uint8_t, uint8_t *, uint8_t);
+
+            Init vefx_init;
+            Init eamio_init;
+            Ticker write_ticker;
+            Read read_slider;
+            Keypad read_keypad;
+            Pad read_pad;
+            Read poll_card;
+            Read card_sensor;
+            Card read_card;
+
+            explicit Backend(HMODULE module) :
+                vefx_init(load_export<Init>(module, "backend_vefxio_init")),
+                eamio_init(load_export<Init>(module, "backend_eamio_init")),
+                write_ticker(load_export<Ticker>(module, "backend_vefxio_write_16seg")),
+                read_slider(load_export<Read>(module, "backend_vefxio_read_slider")),
+                read_keypad(load_export<Keypad>(module, "backend_eamio_get_keypad_state")),
+                read_pad(load_export<Pad>(module, "backend_vefxio_io_recv")),
+                poll_card(load_export<Read>(module, "backend_eamio_poll")),
+                card_sensor(load_export<Read>(module, "backend_eamio_get_sensor_state")),
+                read_card(load_export<Card>(module, "backend_eamio_read_card")) {}
+
+            bool valid() const {
+                return vefx_init && eamio_init && write_ticker && read_slider && read_keypad;
+            }
+        };
+
+        std::filesystem::path backend_path(const std::string &path, std::error_code &error) {
+            if (!path.empty()) {
+                return std::filesystem::absolute(std::filesystem::u8path(path), error);
+            }
+            std::wstring executable(32768, L'\0');
+            const auto length = GetModuleFileNameW(nullptr, executable.data(), executable.size());
+            if (!length || length >= executable.size()) {
+                error = std::error_code(GetLastError(), std::system_category());
+                return {};
+            }
+            executable.resize(length);
+            return std::filesystem::path(executable).parent_path() / L"backend.dll";
+        }
+
         class Subscreen {
-        public:
-            std::mutex lifecycle;
             std::thread worker;
-            std::atomic<HWND> window {nullptr};
-            legacy_panel::State controls;
-            HFONT font = nullptr;
-            HFONT label_font = nullptr;
-            HFONT led_font = nullptr;
-            HANDLE font_resource = nullptr;
-            HDC back_dc = nullptr;
-            HBITMAP back_bitmap = nullptr;
-            HGDIOBJ old_bitmap = nullptr;
-            GetTouch get_touch = nullptr;
-            CloseTouch close_touch = nullptr;
-            int width = 0, height = 0;
-            std::array<char, 9> ticker {};
-            std::string monitor_name;
+            std::mutex mutex;
+            std::condition_variable wake;
+            bool stopping = false;
+            HMODULE module = nullptr;
 
-            ~Subscreen() { stop(); }
+            bool run_wait(std::chrono::milliseconds interval) {
+                std::unique_lock lock(mutex);
+                return !wake.wait_for(lock, interval, [this] { return stopping; });
+            }
 
-            void stop() {
-                const auto hwnd = window.load();
-                if (hwnd != nullptr) {
+            void poll(const Backend &backend, HWND hwnd) {
+                std::array<char, 10> previous_ticker {};
+                std::array<bool, 2> card_seen {};
+                std::array<uint8_t, 5> previous_sliders {};
+                bool sliders_ready = false;
+                bool coin_down = false;
+                log_info("iidx::subscreen", "Original subscreen window opened");
+
+                do {
+                    const auto ticker = legacy_subscreen_ticker();
+                    if (ticker != previous_ticker && backend.write_ticker(ticker.data())) {
+                        previous_ticker = ticker;
+                    }
+
+                    std::array<uint8_t, 5> values {};
+                    for (uint8_t i = 0; i < values.size(); ++i) {
+                        values[i] = std::min<uint8_t>(15, backend.read_slider(i));
+                        // Keep hardware bindings until the user moves each screen slider.
+                        if (sliders_ready && values[i] != previous_sliders[i]) {
+                            sliders[i] = values[i];
+                        }
+                    }
+                    // The backend initially returns zero for all sliders before its first frame.
+                    sliders_ready |= std::any_of(values.begin(), values.end(),
+                        [](uint8_t value) { return value != 0; });
+                    previous_sliders = values;
+                    for (uint8_t player = 0; player < keypad.size(); ++player) {
+                        keypad[player] = backend.read_keypad(player);
+                        if (backend.poll_card && backend.card_sensor && backend.read_card) {
+                            backend.poll_card(player);
+                            const bool present = backend.card_sensor(player) != 0;
+                            if (present && !card_seen[player]) {
+                                std::array<uint8_t, 8> uid {};
+                                if (backend.read_card(player, uid.data(), uid.size()) != 0) {
+                                    eamuse_card_insert(player, uid.data());
+                                }
+                            }
+                            card_seen[player] = present;
+                        }
+                    }
+                    uint64_t pad = 0;
+                    const bool coin = backend.read_pad && backend.read_pad(&pad) && (pad & COIN_BIT);
+                    if (coin && !coin_down) {
+                        eamuse_coin_insert();
+                    }
+                    coin_down = coin;
+                } while (run_wait(8ms) && IsWindow(hwnd));
+
+                for (auto &keys : keypad) {
+                    keys = 0;
+                }
+                for (auto &slider : sliders) {
+                    slider = -1;
+                }
+            }
+
+            void run(const std::string &monitor, const std::string &path) {
+                if (!GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetPointerInfo")) {
+                    log_warning("iidx::subscreen", "The original subscreen requires Windows 8 or newer");
+                    return;
+                }
+                std::error_code error;
+                const auto file = backend_path(path, error);
+                if (file.empty() || error || !std::filesystem::is_regular_file(file, error)) {
+                    log_warning("iidx::subscreen",
+                        "Original backend.dll not found: {}. Set -iidxlegacybackend.", file);
+                    return;
+                }
+
+                HWND hwnd = nullptr;
+                log_info("iidx::subscreen", "Waiting for the IIDX game window");
+                while ((hwnd = find_window(true)) == nullptr) {
+                    if (!run_wait(100ms)) {
+                        return;
+                    }
+                }
+                MonitorSearch search {MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), monitor};
+                EnumDisplayMonitors(nullptr, nullptr, find_monitor, reinterpret_cast<LPARAM>(&search));
+                if (!search.monitor) {
+                    log_warning("iidx::subscreen", "No other monitor matches '{}'", monitor);
+                    return;
+                }
+                game_window = hwnd;
+                display_override = search.monitor;
+
+                module = LoadLibraryExW(file.c_str(), nullptr,
+                    LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+                if (!module) {
+                    const auto code = GetLastError();
+                    log_warning("iidx::subscreen",
+                        "Failed to load {} (Windows error {}). Check DLL bitness and dependencies.",
+                        file, code);
+                    return;
+                }
+                // DllMain starts its own threads and there is no exported stop/unload function.
+                const Backend backend(module);
+                if (!backend.valid()) {
+                    log_warning("iidx::subscreen", "{} lacks the original subscreen exports", file);
+                    return;
+                }
+                configure_backend(module, !monitor.empty());
+                backend.vefx_init();
+                backend.eamio_init();
+
+                const auto deadline = std::chrono::steady_clock::now() + 15s;
+                while ((hwnd = find_window(false)) == nullptr) {
+                    if (!run_wait(50ms)) {
+                        return;
+                    }
+                    if (std::chrono::steady_clock::now() >= deadline) {
+                        log_warning("iidx::subscreen",
+                            "Original backend did not open a window. Check its console output.");
+                        return;
+                    }
+                }
+                poll(backend, hwnd);
+            }
+
+            void close_window() {
+                game_window = nullptr;
+                if (const auto hook = pointer_hook.exchange(nullptr)) {
+                    UnhookWindowsHookEx(hook);
+                }
+                if (const auto hwnd = find_window(false)) {
                     PostMessageW(hwnd, WM_CLOSE, 0, 0);
                 }
-                if (worker.joinable()) {
-                    worker.join();
-                }
             }
 
-            void publish(HWND hwnd) {
-                for (size_t i = 0; i < 2; i++) {
-                    keypad[i] = controls.keys[i];
-                }
-                for (size_t i = 0; i < 5; i++) {
-                    slider[i] = controls.sliders[i];
-                }
-                InvalidateRect(hwnd, nullptr, FALSE);
-            }
+        public:
+            ~Subscreen() { stop(); }
 
-            void point(HWND hwnd, uint32_t id, int x, int y, bool down, bool up) {
-                RECT client {};
-                GetClientRect(hwnd, &client);
-                if (client.right > 0 && client.bottom > 0) {
-                    controls.touch(id, x * legacy_panel::WIDTH / client.right,
-                        y * legacy_panel::HEIGHT / client.bottom, down, up);
-                    publish(hwnd);
-                }
-            }
-
-            static LRESULT CALLBACK proc(HWND hwnd, UINT message, WPARAM wp, LPARAM lp) {
-                auto *self = reinterpret_cast<Subscreen *>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-                if (message == WM_NCCREATE) {
-                    self = static_cast<Subscreen *>(reinterpret_cast<CREATESTRUCTW *>(lp)->lpCreateParams);
-                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
-                }
-                if (self == nullptr) {
-                    return DefWindowProcW(hwnd, message, wp, lp);
-                }
-                switch (message) {
-                    case WM_MOUSEACTIVATE:
-                        return MA_NOACTIVATE;
-                    case WM_ERASEBKGND:
-                        return 1;
-                    case 0x02cc: // WM_TABLET_QUERYSYSTEMGESTURESTATUS
-                        return 1; // Disable press-and-hold right click.
-                    case WM_LBUTTONDOWN:
-                    case WM_MOUSEMOVE:
-                    case WM_LBUTTONUP: {
-                        if ((GetMessageExtraInfo() & 0xffffff80) == 0xff515700) {
-                            return 0; // Ignore mouse events synthesized from touch.
-                        }
-                        if (message == WM_LBUTTONDOWN) {
-                            SetCapture(hwnd);
-                        }
-                        self->point(hwnd, UINT32_MAX, GET_X_LPARAM(lp), GET_Y_LPARAM(lp),
-                            message == WM_LBUTTONDOWN, message == WM_LBUTTONUP);
-                        if (message == WM_LBUTTONUP) {
-                            ReleaseCapture();
-                        }
-                        return 0;
-                    }
-                    case 0x0240: { // WM_TOUCH
-                        std::array<TouchInput, 32> points {};
-                        const auto handle = reinterpret_cast<HANDLE>(lp);
-                        const UINT count = LOWORD(wp);
-                        if (self->get_touch && count <= points.size()
-                                && self->get_touch(handle, count, points.data(), sizeof(TouchInput))) {
-                            for (UINT i = 0; i < count; i++) {
-                                const auto &touch = points[i];
-                                POINT position {touch.x / 100, touch.y / 100};
-                                ScreenToClient(hwnd, &position);
-                                self->point(hwnd, touch.id, position.x, position.y,
-                                    touch.flags & 2, touch.flags & 4);
-                            }
-                        }
-                        if (self->close_touch) {
-                            self->close_touch(handle);
-                        }
-                        return 0;
-                    }
-                    case WM_CANCELMODE:
-                        self->controls.release();
-                        ReleaseCapture();
-                        self->publish(hwnd);
-                        return 0;
-                    case WM_CAPTURECHANGED:
-                        self->controls.touch(UINT32_MAX, 0, 0, false, true);
-                        self->publish(hwnd);
-                        return 0;
-                    case WM_TIMER: {
-                        // A non-activating window may miss mouse-up outside its
-                        // visible area. Release only the mouse contact, keeping
-                        // independent touchscreen contacts intact.
-                        if (GetCapture() == hwnd && !(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
-                            self->controls.touch(UINT32_MAX, 0, 0, false, true);
-                            ReleaseCapture();
-                            self->publish(hwnd);
-                        }
-                        std::array<char, 9> current;
-                        {
-                            std::lock_guard<std::mutex> lock(IIDX_LED_TICKER_LOCK);
-                            std::copy_n(IIDXIO_LED_TICKER, current.size(), current.begin());
-                        }
-                        if (self->ticker != current) {
-                            self->ticker = current;
-                            InvalidateRect(hwnd, nullptr, FALSE);
-                        }
-                        return 0;
-                    }
-                    case WM_PAINT:
-                        self->paint(hwnd);
-                        return 0;
-                    case WM_DISPLAYCHANGE:
-                    case 0x02e0: { // WM_DPICHANGED
-                        MonitorSearch search {self->monitor_name};
-                        EnumDisplayMonitors(nullptr, nullptr, find_monitor,
-                            reinterpret_cast<LPARAM>(&search));
-                        if (search.found) {
-                            const auto rect = search.result.rcMonitor;
-                            SetWindowPos(hwnd, nullptr, rect.left, rect.top,
-                                rect.right - rect.left, rect.bottom - rect.top,
-                                SWP_NOACTIVATE | SWP_NOZORDER);
-                        } else {
-                            DestroyWindow(hwnd);
-                        }
-                        return 0;
-                    }
-                    case WM_CLOSE:
-                        DestroyWindow(hwnd);
-                        return 0;
-                    case WM_DESTROY:
-                        self->controls.release();
-                        self->publish(hwnd);
-                        self->window = nullptr;
-                        PostQuitMessage(0);
-                        return 0;
-                }
-                return DefWindowProcW(hwnd, message, wp, lp);
-            }
-
-            void paint(HWND hwnd) {
-                PAINTSTRUCT paint {};
-                const auto dc = BeginPaint(hwnd, &paint);
-                RECT client {};
-                GetClientRect(hwnd, &client);
-                if (back_dc == nullptr || width != client.right || height != client.bottom) {
-                    clear_buffer();
-                    width = client.right;
-                    height = client.bottom;
-                    back_dc = CreateCompatibleDC(dc);
-                    if (back_dc != nullptr) {
-                        back_bitmap = CreateCompatibleBitmap(dc,
-                            std::max(1, width), std::max(1, height));
-                        if (back_bitmap != nullptr) {
-                            old_bitmap = SelectObject(back_dc, back_bitmap);
-                        }
-                    }
-                }
-                if (back_dc == nullptr || back_bitmap == nullptr) {
-                    clear_buffer();
-                    EndPaint(hwnd, &paint);
+            void start(std::string monitor, std::string path) {
+                if (worker.joinable() || module) {
                     return;
                 }
-                SaveDC(back_dc);
-                SetMapMode(back_dc, MM_ANISOTROPIC);
-                SetWindowExtEx(back_dc, legacy_panel::WIDTH, legacy_panel::HEIGHT, nullptr);
-                SetViewportExtEx(back_dc, width, height, nullptr);
-                auto rectangle = [&](legacy_panel::Rect rect, COLORREF color) {
-                    const RECT bounds {rect.left, rect.top, rect.right, rect.bottom};
-                    SetDCBrushColor(back_dc, color);
-                    FillRect(back_dc, &bounds, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
-                };
-                auto text = [&](legacy_panel::Rect rect, const char *value, int length,
-                        COLORREF color, HFONT face) {
-                    RECT bounds {rect.left, rect.top, rect.right, rect.bottom};
-                    SelectObject(back_dc, face);
-                    SetTextColor(back_dc, color);
-                    DrawTextA(back_dc, value, length, &bounds,
-                        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-                };
-                SetBkMode(back_dc, TRANSPARENT);
-                rectangle({0, 0, 1280, 720}, RGB(12, 17, 25));
-                text({55, 185, 375, 235}, "PLAYER 1", -1, RGB(220, 225, 235), font);
-                text({905, 185, 1225, 235}, "PLAYER 2", -1, RGB(220, 225, 235), font);
-                std::array<char, 9> display = ticker;
-                for (auto &c : display) {
-                    if (c == 'm') { c = '.'; }
-                    if (c == '~') { c = '-'; }
-                }
-                text({110, 35, 1170, 160}, display.data(), display.size(), RGB(255, 60, 40), led_font);
-                for (size_t i = 0; i < 26; i++) {
-                    const bool pressed = controls.keys[i / 13] & (1u << legacy_panel::SCAN_CODES[i % 13]);
-                    const auto rect = legacy_panel::bounds(i);
-                    rectangle(rect, pressed ? RGB(35, 125, 190) : RGB(35, 46, 64));
-                    text(rect, legacy_panel::LABELS[i % 13], -1, RGB(245, 245, 245), font);
-                }
-                for (size_t i = 0; i < 5; i++) {
-                    auto rect = legacy_panel::bounds(26 + i);
-                    rectangle(rect, RGB(35, 46, 64));
-                    const int value = controls.sliders[i] < 0 ? 15 : controls.sliders[i];
-                    const int y = rect.bottom - 1 - value * (rect.bottom - rect.top - 1) / 15;
-                    rectangle({rect.left, y - 6, rect.right, y + 6}, RGB(65, 185, 225));
-                    rect.top = 195;
-                    rect.bottom = 245;
-                    rect.left -= 10;
-                    rect.right += 10;
-                    text(rect, legacy_panel::SLIDER_NAMES[i], -1, RGB(220, 225, 235), label_font);
-                }
-                RestoreDC(back_dc, -1);
-                BitBlt(dc, 0, 0, width, height, back_dc, 0, 0, SRCCOPY);
-                EndPaint(hwnd, &paint);
+                stopping = false;
+                worker = std::thread([this, monitor = std::move(monitor), path = std::move(path)] {
+                    run(monitor, path);
+                    if (module) {
+                        close_window();
+                    }
+                });
             }
 
-            void clear_buffer() {
-                if (back_dc) {
-                    if (old_bitmap != nullptr) {
-                        SelectObject(back_dc, old_bitmap);
-                    }
-                    if (back_bitmap != nullptr) {
-                        DeleteObject(back_bitmap);
-                    }
-                    DeleteDC(back_dc);
-                }
-                back_dc = nullptr;
-                back_bitmap = nullptr;
-                old_bitmap = nullptr;
-            }
-
-            void run(MONITORINFOEXA monitor, std::promise<bool> ready) {
-                const auto instance = GetModuleHandleW(nullptr);
-                WNDCLASSW klass {};
-                klass.lpfnWndProc = proc;
-                klass.hInstance = instance;
-                klass.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
-                klass.lpszClassName = L"SpiceIIDXLegacySubscreen";
-                RegisterClassW(&klass);
-                controls = {};
-                const auto user = GetModuleHandleW(L"user32.dll");
-                const auto register_touch = reinterpret_cast<RegisterTouch>(
-                    GetProcAddress(user, "RegisterTouchWindow"));
-                get_touch = reinterpret_cast<GetTouch>(GetProcAddress(user, "GetTouchInputInfo"));
-                close_touch = reinterpret_cast<CloseTouch>(GetProcAddress(user, "CloseTouchInputHandle"));
-                monitor_name = monitor.szDevice;
-                const auto rect = monitor.rcMonitor;
-                const auto hwnd = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
-                    klass.lpszClassName, L"IIDX Legacy Subscreen", WS_POPUP,
-                    rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
-                    nullptr, nullptr, instance, this);
-                window = hwnd;
-                if (hwnd == nullptr) {
-                    UnregisterClassW(klass.lpszClassName, instance);
-                    ready.set_value(false);
+            void stop() {
+                if (!worker.joinable()) {
                     return;
                 }
-                DWORD bytes = 0, fonts = 0;
-                const auto data = resutil::load_file(IDR_DSEGFONT, &bytes);
-                if (data && bytes) {
-                    font_resource = AddFontMemResourceEx(const_cast<char *>(data), bytes, nullptr, &fonts);
+                {
+                    std::lock_guard lock(mutex);
+                    stopping = true;
                 }
-                auto make_font = [](int height, const char *name) {
-                    return CreateFontA(height, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                        ANTIALIASED_QUALITY, DEFAULT_PITCH, name);
-                };
-                font = make_font(-27, "Segoe UI");
-                label_font = make_font(-20, "Segoe UI");
-                led_font = make_font(-75, "DSEG14 Classic");
-                if (register_touch && get_touch && close_touch) {
-                    register_touch(hwnd, 1);
-                }
-                SetTimer(hwnd, 1, 33, nullptr);
-                ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-                ready.set_value(true);
-                MSG message;
-                while (GetMessageW(&message, nullptr, 0, 0) > 0) {
-                    TranslateMessage(&message);
-                    DispatchMessageW(&message);
-                }
-                clear_buffer();
-                DeleteObject(font);
-                DeleteObject(label_font);
-                DeleteObject(led_font);
-                if (font_resource) {
-                    RemoveFontMemResourceEx(font_resource);
-                    font_resource = nullptr;
-                }
-                for (auto &value : slider) { value = -1; }
-                UnregisterClassW(klass.lpszClassName, instance);
+                wake.notify_one();
+                worker.join();
             }
         };
 
         Subscreen &subscreen() {
-            static Subscreen value;
-            return value;
+            static Subscreen instance;
+            return instance;
         }
-
-
     }
 
-    bool legacy_subscreen_start(const std::string &monitor) {
-        auto &screen = subscreen();
-        std::lock_guard<std::mutex> lock(screen.lifecycle);
-        screen.stop();
-        MonitorSearch search {monitor};
-        EnumDisplayMonitors(nullptr, nullptr, find_monitor, reinterpret_cast<LPARAM>(&search));
-        if (!search.found) {
-            log_warning("iidx", "Legacy subscreen monitor not found; connect a second display or set iidxlegacymonitor");
-            return false;
-        }
-        std::promise<bool> ready;
-        auto result = ready.get_future();
-        screen.worker = std::thread([&screen, info = search.result, ready = std::move(ready)]() mutable {
-            screen.run(info, std::move(ready));
-        });
-        const bool started = result.get();
-        if (started) {
-            log_info("iidx", "Legacy subscreen opened on {}", search.result.szDevice);
-        }
-        return started;
+    void legacy_subscreen_start(const std::string &monitor, const std::string &path) {
+        subscreen().start(monitor, path);
     }
 
     void legacy_subscreen_stop() {
-        auto &screen = subscreen();
-        std::lock_guard<std::mutex> lock(screen.lifecycle);
-        screen.stop();
+        subscreen().stop();
+    }
+
+    bool is_legacy_subscreen_window(HWND window) {
+        char name[sizeof(WINDOW_CLASS) + 1] {};
+        return GetClassNameA(window, name, sizeof(name)) && std::strcmp(name, WINDOW_CLASS) == 0;
     }
 
     uint16_t legacy_subscreen_keypad(size_t player) {
@@ -405,6 +396,6 @@ namespace games::iidx {
     }
 
     int legacy_subscreen_slider(size_t index) {
-        return index < slider.size() ? slider[index].load() : -1;
+        return index < sliders.size() ? sliders[index].load() : -1;
     }
 }

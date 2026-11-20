@@ -1312,9 +1312,10 @@ int main_implementation(int argc, char *argv[]) {
     if (options[launcher::Options::spice2x_SubScreenAutoShow].value_bool()) {
         overlay::AUTO_SHOW_SUBSCREEN = true;
     }
-    if (options[launcher::Options::spice2x_IOPanelAutoShow].value_bool()) {
-        overlay::AUTO_SHOW_IOPANEL = true;
-    }
+    overlay::AUTO_SHOW_IOPANEL =
+        options[launcher::Options::spice2x_IOPanelAutoShow].value_bool() &&
+        !(eamuse_get_game() == "Beatmania IIDX" &&
+            options[launcher::Options::IIDXLegacySubscreen].value_bool());
     if (options[launcher::Options::spice2x_KeypadAutoShow].is_active()) {
         auto s = options[launcher::Options::spice2x_KeypadAutoShow].value_uint32();
         switch (s) {

@@ -22,6 +22,7 @@
 
 #include "external/imgui/imgui.h"
 #include "external/imgui/backends/imgui_impl_dx11.h"
+#include "games/iidx/legacy_subscreen.h"
 #include "overlay/imgui/impl_spice.h"
 
 #include "hooks/graphics/graphics.h"
@@ -292,7 +293,8 @@ bool is_main_game_swapchain(IDXGISwapChain *swapchain) {
 }
 
 void note_main_hwnd(HWND hwnd) {
-    if (!hwnd || hwnd == g_ignored_hwnd.load()) {
+    if (!hwnd || g_main_hwnd.load() || hwnd == g_ignored_hwnd.load() ||
+            games::iidx::is_legacy_subscreen_window(hwnd)) {
         return;
     }
     HWND expected = nullptr;

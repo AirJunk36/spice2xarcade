@@ -990,8 +990,15 @@ namespace overlay::windows {
                 options.at(launcher::Options::IIDXBI2XSkipReset).value_bool(), board);
         }
         ImGui::EndDisabled();
+        if (!enabled) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("Enable Native I/O hardware to connect.");
+        }
         if (!state.online && !state.message.empty()) {
             ImGui::TextWrapped("%s", state.message.c_str());
+        }
+        if (enabled && options.at(launcher::Options::EnableDevicePassthrough).value_bool()) {
+            ImGui::TextWrapped("Disable Device Passthrough for the game's FM serial or EZUSB I/O.");
         }
         auto &subscreen = options.at(launcher::Options::IIDXLegacySubscreen);
         bool show_subscreen = subscreen.value_bool();
@@ -1000,8 +1007,14 @@ namespace overlay::windows {
             ::Config::getInstance().updateBinding(game, subscreen);
         }
         if (show_subscreen) {
+            auto &backend = options.at(launcher::Options::IIDXLegacyBackend);
+            ImGui::InputText("Subscreen backend DLL", &backend.value);
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                ::Config::getInstance().updateBinding(game, backend);
+            }
+            ImGui::TextWrapped("Empty: load the original backend.dll next to Spice.");
             auto &monitor = options.at(launcher::Options::IIDXLegacyMonitor);
-            ImGui::InputText("Subscreen monitor (empty = secondary)", &monitor.value);
+            ImGui::InputText("Subscreen monitor (empty = auto)", &monitor.value);
             if (ImGui::IsItemDeactivatedAfterEdit()) {
                 ::Config::getInstance().updateBinding(game, monitor);
             }
