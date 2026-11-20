@@ -53,6 +53,7 @@ namespace hooks::audio {
     bool INJECT_FAKE_REALTEK_AUDIO = false;
     std::optional<size_t> ASIO_DRIVER_ID = std::nullopt;
     std::string ASIO_DRIVER_NAME = "";
+    bool ASIO_LEGACY_IIDX_XONAR_POLLING = false;
     bool ASIO_FORCE_UNLOAD_ON_STOP = false;
 
     std::mutex INITIALIZE_LOCK; // for asio

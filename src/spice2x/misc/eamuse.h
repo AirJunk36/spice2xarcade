@@ -34,6 +34,7 @@ enum eam_io_keypad_scan_code {
 extern std::mutex CARD_OVERRIDES_LOCK;
 extern std::string CARD_OVERRIDES[2];
 extern bool AUTO_INSERT_CARD[2];
+extern bool HIDE_CARD_INSERTED_NOTIFICATION;
 extern float AUTO_INSERT_CARD_COOLDOWN;
 
 extern bool PIN_MACRO_ENABLED;

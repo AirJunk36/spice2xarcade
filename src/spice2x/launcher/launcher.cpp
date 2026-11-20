@@ -2851,6 +2851,7 @@ int main_implementation(int argc, char *argv[]) {
 
     // notification position: apply per-game default first, then the explicit
     // user option (if set) wins over the default.
+    HIDE_CARD_INSERTED_NOTIFICATION = options[launcher::Options::HideCardInsertedNotification].value_bool();
     overlay::notifications::apply_game_default_position(eamuse_get_game());
     if (options[launcher::Options::NotificationPosition].is_active()) {
         const auto txt = options[launcher::Options::NotificationPosition].value_text();

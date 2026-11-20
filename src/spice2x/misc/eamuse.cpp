@@ -38,6 +38,7 @@ static ConfigKeypadBindings KEYPAD_BINDINGS {};
 static std::mutex KEYPAD_BINDINGS_LOCK;
 
 // auto card
+bool HIDE_CARD_INSERTED_NOTIFICATION = false;
 bool AUTO_INSERT_CARD[2] = {false, false};
 float AUTO_INSERT_CARD_COOLDOWN = 8.f; // seconds
 static std::optional<double> AUTO_INSERT_CARD_FIRST_CONSUME_TIME;
@@ -287,11 +288,13 @@ bool eamuse_card_insert_consume(int active_count, int unit_id) {
         log_info("eamuse", "[P{}] Card insert on reader (total active count: {})", unit_id+1, active_count);
         CARD_INSERT[index] = false;
 
-        overlay::notifications::add_throttled(
-            overlay::notifications::Severity::Info,
-            fmt::format("eamuse.card_inserted.p{}", unit_id + 1),
-            NOTIFICATION_THROTTLE_SECONDS,
-            fmt::format("[P{}] card inserted", unit_id + 1));
+        if (!HIDE_CARD_INSERTED_NOTIFICATION) {
+            overlay::notifications::add_throttled(
+                overlay::notifications::Severity::Info,
+                fmt::format("eamuse.card_inserted.p{}", unit_id + 1),
+                NOTIFICATION_THROTTLE_SECONDS,
+                fmt::format("[P{}] card inserted", unit_id + 1));
+        }
 
         return true;
     }

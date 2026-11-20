@@ -429,16 +429,20 @@ namespace games::iidx {
 
 #endif
 
-        const bool manual_subscreen = options->at(launcher::Options::IIDXLegacySubscreen).value_bool();
+        const auto subscreen_artwork = options->at(launcher::Options::IIDXLegacyBackend).value_text();
+        const bool manual_subscreen = !subscreen_artwork.empty() ||
+            options->at(launcher::Options::IIDXLegacySubscreen).value_bool();
         bio2::Board board;
-        const bool auto_subscreen = !TDJ_MODE &&
+        // IIDX 25 and 26 have no TDJ subscreen even on a PC with Lightning ROM markers.
+        const bool pre_lightning_64bit = avs::game::is_ext(2017122100, 2019101500);
+        const bool auto_subscreen = (!TDJ_MODE || pre_lightning_64bit) &&
             !options->at(launcher::Options::IIDXNoAutoLegacySubscreen).value_bool() &&
             options->at(launcher::Options::IIDXBI2XNative).value_bool() &&
             bio2::parse_board(options->at(launcher::Options::IIDXBIO2Board).value_text(), board) &&
             board == bio2::Board::BI2X;
         if ((manual_subscreen || auto_subscreen) && legacy_subscreen_start(
                 options->at(launcher::Options::IIDXLegacyMonitor).value_text(),
-                options->at(launcher::Options::IIDXLegacyBackend).value_text())) {
+                subscreen_artwork)) {
             overlay::AUTO_SHOW_SUBSCREEN = false;
             overlay::AUTO_SHOW_IOPANEL = false;
         }
@@ -943,6 +947,8 @@ namespace games::iidx {
             }
             return;
         }
+        hooks::audio::ASIO_LEGACY_IIDX_XONAR_POLLING = sizeof(void *) == 4 &&
+            _stricmp(selected->name.c_str(), "XONAR SOUND CARD") == 0;
         hooks::audio::ASIO_DRIVER_NAME = selected->name;
         hooks::audio::ASIO_DRIVER_ID.reset();
         hooks::audio::BACKEND = hooks::audio::Backend::Asio;

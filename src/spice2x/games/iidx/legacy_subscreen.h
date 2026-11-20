@@ -4,14 +4,17 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <string>
 #include <windows.h>
 
 namespace games::iidx {
+    inline constexpr char LEGACY_SUBSCREEN_WINDOW_CLASS[] = "SpiceIIDXLegacySubscreen";
     inline constexpr UINT LEGACY_SUBSCREEN_TOPMOST_INTERVAL_MS = 500;
 
 #ifndef SPICE_XP
-    void run_builtin_legacy_subscreen(HWND main, const RECT &rect, const std::atomic_bool &stopping,
+    bool run_builtin_legacy_subscreen(HWND main, const RECT &rect,
+        const std::filesystem::path &artwork, const std::atomic_bool &stopping,
         std::array<std::atomic<uint16_t>, 2> &keypads, std::array<std::atomic<int>, 5> &sliders);
 #endif
     bool legacy_subscreen_start(const std::string &monitor, const std::string &path);

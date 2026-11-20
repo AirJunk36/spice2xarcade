@@ -134,30 +134,34 @@ as a destination for mapped legacy hardware. Support for the physical
 Valkyrie BI2X/UFC board is pending its native communication and initialization
 protocol. Only the physical board's lamp channels are available when remapping.
 
-## Built-in subscreen for old games
+## IIDX legacy subscreen
 
-Spice builds in the window layout, Ticker and pointer routing adapted from
-[iidx_btools_subscreen](https://github.com/cloud11665/iidx_btools_subscreen).
-It uses Spice's existing renderer and default font for the controls. The
-subscreen includes two keypads, the nine-character Ticker, five effect
-sliders, card insertion using Spice's card settings, and coin insertion.
+With native BI2X, Spice opens a legacy subscreen in non-TDJ mode on Windows 8
+or newer. Cannon Ballers and Rootage can also open it if the cabinet PC is
+detected as a Lightning Model. Use `-iidxnoautolegacysub` to disable automatic
+startup, or `-iidxlegacysub` to request it explicitly. Set
+`-iidxlegacymonitor \\.\DISPLAY2` to choose the secondary display.
+Spice keeps the subscreen above other windows without taking game focus.
 
-Native BI2X in non-TDJ mode opens the legacy subscreen automatically on
-Windows 8 or newer. Use `-iidxnoautolegacysub` to disable automatic startup,
-or `-iidxlegacysub` to request it explicitly. Set `-iidxlegacymonitor \\.\DISPLAY2`
-to select the secondary display. Spice keeps the assigned analog input until
-the corresponding screen slider is used and restores it when the screen closes.
-The subscreen stays above other windows while the game retains focus.
+For the original interface, set **Subscreen backend DLL** in SpiceCfg or pass
+`-iidxlegacybackend "C:\path\to\backend64.dll"` with a 64-bit build of
+[iidx_btools_subscreen](https://github.com/cloud11665/iidx_btools_subscreen)
+on IIDX 25 or 26. Use a 32-bit build with `spice.exe`. A recent original build
+includes the Cards, Settings and Coin buttons, both Concentration Mode
+controls, the card list and touch effects. Spice supplies the game I/O to the
+original interface instead of using its BemaniTools DLLs. The original project
+lists IIDX 12–24. The Spice bridge extends its intended range to IIDX 18–26.
 
-To use the original standalone project DLL, set **Subscreen backend DLL** or
-pass `-iidxlegacybackend` with its path. The author's
-[v0.2.0 release](https://github.com/cloud11665/iidx_btools_subscreen/releases/tag/v0.2.0)
-works with `spice.exe`. Use a 64-bit build of the same project with `spice64.exe`.
-The IIDX IO Panel remains available through its own overlay toggle.
-
-The initial game scope remains **IIDX 18–26**. The reference project lists
-12–24, and the Spice bridge and 25–26 still need cabinet testing, including touch
-routing, display selection and game startup.
+If the configured DLL has the wrong bitness, Spice checks the same directory
+for `backend64.dll` or `backend32.dll` matching the launcher. If the original
+cannot start, the built-in screen can read the configured DLL as artwork
+regardless of bitness. To go directly to the built-in screen with original
+artwork, clear **Subscreen backend DLL** and put the original `backend.dll`
+in the game directory. The built-in screen offers the keypads, Ticker, five
+faders, Concentration Mode, Spice card insertion, settings and coin insertion.
+Display changes cause the built-in screen to reopen on the selected display.
+Screen faders take over from the hardware individually when touched. The
+IIDX IO Panel remains available through its own overlay toggle.
 
 ## IIDX 26 cabinet troubleshooting
 
@@ -174,7 +178,10 @@ routing, display selection and game startup.
   and the player for each swipe.
 - For crackling with WASAPI Exclusive, try `-exclusivebuffer 10`, then
   `-exclusivebuffer 20` if needed. A larger buffer adds audio latency.
-  For ASIO, use the driver's buffer setting instead.
+  Force ASIO on 32-bit IIDX with Xonar now gives shared polling games a
+  minimum 40 ms software queue. The driver keeps its own hardware period.
+- To hide only the Spice swipe popup, turn on **General Overlay → Hide Card
+  Inserted Notification** (`-hidecardtoast`).
 
 ## Tricoro FeliCa card handoff
 

@@ -1,10 +1,6 @@
 #include "legacy_subscreen.h"
 
-#include <windows.h>
-
 #include <algorithm>
-#include <array>
-#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
@@ -18,55 +14,66 @@
 
 namespace games::iidx {
     namespace {
-        using namespace std::chrono_literals;
-
-        constexpr char WINDOW_CLASS[] = "BM2DX_SUBMON_TOUCH";
-        constexpr uint64_t COIN_BIT = 1ull << 29;
-
         std::array<std::atomic<uint16_t>, 2> keypad {};
         std::array<std::atomic<int>, 5> sliders {{-1, -1, -1, -1, -1}};
+
+#ifndef SPICE_XP
+        using namespace std::chrono_literals;
+
+        constexpr char ORIGINAL_WINDOW_CLASS[] = "BM2DX_SUBMON_TOUCH";
+        constexpr uint64_t COIN_BIT = 1ull << 29;
         std::atomic<HWND> game_window {nullptr};
         std::atomic<HMONITOR> display_override {nullptr};
         std::atomic<HHOOK> pointer_hook {nullptr};
 
-        struct WindowSearch {
-            bool game;
-            HWND window = nullptr;
-        };
+        BOOL CALLBACK find_original_window_callback(HWND window, LPARAM data) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(window, &pid);
+            char name[sizeof(ORIGINAL_WINDOW_CLASS) + 1] {};
+            if (pid == GetCurrentProcessId() && GetClassNameA(window, name, sizeof(name)) &&
+                    std::strcmp(name, ORIGINAL_WINDOW_CLASS) == 0) {
+                *reinterpret_cast<HWND *>(data) = window;
+                return FALSE;
+            }
+            return TRUE;
+        }
 
-        BOOL CALLBACK find_window_callback(HWND window, LPARAM data) {
-            auto &search = *reinterpret_cast<WindowSearch *>(data);
+        HWND find_original_window() {
+            HWND result = nullptr;
+            EnumWindows(find_original_window_callback, reinterpret_cast<LPARAM>(&result));
+            return result;
+        }
+
+        bool is_iidx_title(const char *name) {
+            return std::strncmp(name, "beatmaniaIIDX", 13) == 0 ||
+                std::strncmp(name, "beatmania IIDX", 14) == 0;
+        }
+
+        BOOL CALLBACK find_game_window(HWND window, LPARAM data) {
             DWORD pid = 0;
             GetWindowThreadProcessId(window, &pid);
             if (pid != GetCurrentProcessId() || !IsWindowVisible(window)) {
                 return TRUE;
             }
-
-            char name[256] {};
-            GetClassNameA(window, name, sizeof(name));
-            const bool matches = search.game
-                ? (std::strncmp(name, "beatmaniaIIDX", 13) == 0 ||
-                    std::strncmp(name, "beatmania IIDX", 14) == 0 ||
-                    std::strncmp(name, "C02", 3) == 0)
-                : std::strcmp(name, WINDOW_CLASS) == 0;
-            if (!matches) {
+            char title[256] {};
+            GetWindowTextA(window, title, sizeof(title));
+            if (std::strstr(title, " sub")) {
                 return TRUE;
             }
-
-            search.window = window;
-            return FALSE;
-        }
-
-        HWND find_window(bool game) {
-            WindowSearch search {game};
-            EnumWindows(find_window_callback, reinterpret_cast<LPARAM>(&search));
-            return search.window;
+            char name[256] {};
+            GetClassNameA(window, name, sizeof(name));
+            if (is_iidx_title(title) || is_iidx_title(name) || std::strncmp(name, "C02", 3) == 0) {
+                *reinterpret_cast<HWND *>(data) = window;
+                return FALSE;
+            }
+            return TRUE;
         }
 
         struct MonitorSearch {
             HMONITOR main;
-            const std::string &name;
-            HMONITOR monitor = nullptr;
+            const std::string &requested;
+            HMONITOR handle = nullptr;
+            MONITORINFOEXA found {};
         };
 
         BOOL CALLBACK find_monitor(HMONITOR monitor, HDC, LPRECT, LPARAM data) {
@@ -74,8 +81,9 @@ namespace games::iidx {
             MONITORINFOEXA info {};
             info.cbSize = sizeof(info);
             if (monitor != search.main && GetMonitorInfoA(monitor, &info) &&
-                    (search.name.empty() || search.name == info.szDevice)) {
-                search.monitor = monitor;
+                    (search.requested.empty() || search.requested == info.szDevice)) {
+                search.handle = monitor;
+                search.found = info;
                 return FALSE;
             }
             return TRUE;
@@ -134,12 +142,10 @@ namespace games::iidx {
             return TRUE;
         }
 
-        void configure_backend(HMODULE module, bool explicit_monitor) {
+        void configure_backend(HMODULE module) {
             // The upstream backend initializes its touch/window code after a startup delay.
             detour::iat_try("EnumWindows", enum_game_window, module);
-            if (explicit_monitor) {
-                detour::iat_try("EnumDisplayMonitors", enum_subscreen_monitor, module);
-            }
+            detour::iat_try("EnumDisplayMonitors", enum_subscreen_monitor, module);
             detour::iat_try("EnableMouseInPointer", enable_pointer_mode, module);
             detour::iat_try("SetWindowsHookExA", install_pointer_hook, module);
             detour::iat_try("SystemParametersInfoA", set_subscreen_parameters<SystemParametersInfoA>,
@@ -194,7 +200,6 @@ namespace games::iidx {
             std::mutex mutex;
             std::condition_variable wake;
             std::atomic_bool stopping = false;
-            HMODULE module = nullptr;
 
             bool run_wait(std::chrono::milliseconds interval) {
                 std::unique_lock lock(mutex);
@@ -264,102 +269,126 @@ namespace games::iidx {
                 }
             }
 
-            void run(const std::string &monitor, const std::filesystem::path &file) {
-                HWND hwnd = nullptr;
-                log_info("iidx::subscreen", "Waiting for the IIDX game window");
-                while ((hwnd = find_window(true)) == nullptr) {
-                    if (!run_wait(100ms)) {
-                        return;
-                    }
-                }
-                MonitorSearch search {MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), monitor};
-                EnumDisplayMonitors(nullptr, nullptr, find_monitor, reinterpret_cast<LPARAM>(&search));
-                if (!search.monitor) {
-                    log_warning("iidx::subscreen", "No other monitor matches '{}'", monitor);
-                    return;
-                }
-#ifndef SPICE_XP
-                if (file.empty()) {
-                    MONITORINFO info {};
-                    info.cbSize = sizeof(info);
-                    if (GetMonitorInfoW(search.monitor, &info)) {
-                        run_builtin_legacy_subscreen(hwnd, info.rcMonitor, stopping, keypad, sliders);
-                    }
-                    return;
-                }
-#endif
-                game_window = hwnd;
-                display_override = search.monitor;
-
-                module = LoadLibraryExW(file.c_str(), nullptr,
-                    LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-                if (!module) {
-                    const auto code = GetLastError();
-                    log_warning("iidx::subscreen",
-                        "Failed to load {} (Windows error {}). Check DLL bitness and dependencies.",
-                        file, code);
-                    return;
-                }
-                // DllMain starts its own threads and there is no exported stop/unload function.
-                const Backend backend(module);
-                if (!backend.valid()) {
-                    log_warning("iidx::subscreen", "{} lacks the original subscreen exports", file);
-                    return;
-                }
-                configure_backend(module, !monitor.empty());
-                backend.vefx_init();
-                backend.eamio_init();
-
-                const auto deadline = std::chrono::steady_clock::now() + 15s;
-                while ((hwnd = find_window(false)) == nullptr) {
-                    if (!run_wait(50ms)) {
-                        return;
-                    }
-                    if (std::chrono::steady_clock::now() >= deadline) {
-                        log_warning("iidx::subscreen",
-                            "Original backend did not open a window. Check its console output.");
-                        return;
-                    }
-                }
-                poll(backend, hwnd);
-            }
-
-            void close_window() {
+            void close_original_window() {
                 game_window = nullptr;
+                display_override = nullptr;
                 if (const auto hook = pointer_hook.exchange(nullptr)) {
                     UnhookWindowsHookEx(hook);
                 }
-                if (const auto hwnd = find_window(false)) {
-                    PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                if (const auto window = find_original_window()) {
+                    PostMessageW(window, WM_CLOSE, 0, 0);
+                }
+            }
+
+            bool run_original(HWND main, HMONITOR monitor, std::filesystem::path path) {
+                constexpr DWORD flags = LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS;
+                auto module = LoadLibraryExW(path.c_str(), nullptr, flags);
+                auto error = module ? ERROR_SUCCESS : GetLastError();
+                if (error == ERROR_BAD_EXE_FORMAT) {
+                    const auto matching = path.parent_path() /
+                        (sizeof(void *) == 8 ? L"backend64.dll" : L"backend32.dll");
+                    if (matching != path) {
+                        module = LoadLibraryExW(matching.c_str(), nullptr, flags);
+                        if (module) {
+                            path = matching;
+                        }
+                    }
+                }
+                if (!module) {
+                    log_warning("iidx::subscreen",
+                        "Could not run {} (Windows error {}); trying it as artwork", path, error);
+                    return false;
+                }
+
+                // DllMain starts background threads and the original ABI has no shutdown export.
+                const Backend backend(module);
+                if (!backend.valid()) {
+                    log_warning("iidx::subscreen", "{} lacks the iidx_btools_subscreen exports", path);
+                    return false;
+                }
+                game_window = main;
+                display_override = monitor;
+                configure_backend(module);
+                backend.vefx_init();
+                backend.eamio_init();
+                log_info("iidx::subscreen", "Starting original subscreen backend {}", path);
+
+                const auto deadline = std::chrono::steady_clock::now() + 15s;
+                while (run_wait(50ms)) {
+                    if (const auto window = find_original_window()) {
+                        if (IsWindowVisible(window)) {
+                            poll(backend, window);
+                            close_original_window();
+                            return true;
+                        }
+                    }
+                    if (std::chrono::steady_clock::now() >= deadline) {
+                        log_warning("iidx::subscreen",
+                            "Original backend did not open a window; trying the built-in renderer");
+                        close_original_window();
+                        return false;
+                    }
+                }
+                close_original_window();
+                return true;
+            }
+
+            void run(const std::string &monitor, const std::filesystem::path &artwork, bool original) {
+                log_info("iidx::subscreen", "Waiting for the IIDX game window and secondary display");
+                auto next_warning = std::chrono::steady_clock::now() + 10s;
+                while (!stopping) {
+                    HWND main = nullptr;
+                    EnumWindows(find_game_window, reinterpret_cast<LPARAM>(&main));
+                    if (main) {
+                        MonitorSearch search {MonitorFromWindow(main, MONITOR_DEFAULTTONEAREST), monitor};
+                        EnumDisplayMonitors(nullptr, nullptr, find_monitor, reinterpret_cast<LPARAM>(&search));
+                        if (search.handle) {
+                            if (original && !artwork.empty() && run_original(main, search.handle, artwork)) {
+                                return;
+                            }
+                            original = false;
+                            log_info("iidx::subscreen", "Opening built-in subscreen on {}", search.found.szDevice);
+                            if (!run_builtin_legacy_subscreen(main, search.found.rcMonitor, artwork,
+                                    stopping, keypad, sliders)) {
+                                return;
+                            }
+                            next_warning = std::chrono::steady_clock::now() + 10s;
+                        }
+                    }
+                    if (std::chrono::steady_clock::now() >= next_warning) {
+                        if (main) {
+                            log_warning("iidx::subscreen", "Still waiting for a separate active monitor ({})",
+                                monitor.empty() ? "automatic selection" : monitor);
+                        } else {
+                            log_warning("iidx::subscreen", "Still waiting for the visible IIDX game window");
+                        }
+                        next_warning = std::chrono::steady_clock::now() + 30s;
+                    }
+                    run_wait(250ms);
                 }
             }
 
         public:
             ~Subscreen() { stop(); }
 
-            void start(std::string monitor, std::filesystem::path path) {
-                if (worker.joinable() || module) {
-                    return;
+            void start(std::string monitor, std::filesystem::path artwork, bool original) {
+                if (!worker.joinable()) {
+                    stopping = false;
+                    worker = std::thread([this, monitor = std::move(monitor), artwork = std::move(artwork), original] {
+                        run(monitor, artwork, original);
+                    });
                 }
-                stopping = false;
-                worker = std::thread([this, monitor = std::move(monitor), path = std::move(path)] {
-                    run(monitor, path);
-                    if (module) {
-                        close_window();
-                    }
-                });
             }
 
             void stop() {
-                if (!worker.joinable()) {
-                    return;
+                if (worker.joinable()) {
+                    {
+                        std::lock_guard lock(mutex);
+                        stopping = true;
+                    }
+                    wake.notify_one();
+                    worker.join();
                 }
-                {
-                    std::lock_guard lock(mutex);
-                    stopping = true;
-                }
-                wake.notify_one();
-                worker.join();
             }
         };
 
@@ -367,38 +396,40 @@ namespace games::iidx {
             static Subscreen instance;
             return instance;
         }
+#endif
     }
 
     bool legacy_subscreen_start(const std::string &monitor, const std::string &path) {
-        if (!GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetPointerInfo")) {
-            log_warning("iidx::subscreen", "The original subscreen requires Windows 8 or newer");
-            return false;
-        }
-        std::filesystem::path file;
-        if (!path.empty()) {
+#ifndef SPICE_XP
+        if (GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetPointerInfo")) {
             std::error_code error;
-            file = std::filesystem::absolute(std::filesystem::u8path(path), error);
+            std::filesystem::path file = std::filesystem::absolute(
+                std::filesystem::u8path(path.empty() ? "backend.dll" : path), error);
             if (error || !std::filesystem::is_regular_file(file, error)) {
-                log_warning("iidx::subscreen", "Subscreen backend DLL not found: {}", path);
-                return false;
+                if (!path.empty()) {
+                    log_warning("iidx::subscreen", "Subscreen artwork DLL not found: {}", path);
+                }
+                file.clear();
             }
-        }
-#ifdef SPICE_XP
-        if (file.empty()) {
-            return false;
+            subscreen().start(monitor, file, !path.empty());
+            return true;
         }
 #endif
-        subscreen().start(monitor, file);
-        return true;
+        log_warning("iidx::subscreen", "The legacy subscreen requires Windows 8 or newer");
+        return false;
     }
 
     void legacy_subscreen_stop() {
+#ifndef SPICE_XP
         subscreen().stop();
+#endif
     }
 
     bool is_legacy_subscreen_window(HWND window) {
-        char name[sizeof(WINDOW_CLASS) + 1] {};
-        return GetClassNameA(window, name, sizeof(name)) && std::strcmp(name, WINDOW_CLASS) == 0;
+        char name[sizeof(LEGACY_SUBSCREEN_WINDOW_CLASS) + 1] {};
+        return GetClassNameA(window, name, sizeof(name)) &&
+            (std::strcmp(name, LEGACY_SUBSCREEN_WINDOW_CLASS) == 0 ||
+             std::strcmp(name, "BM2DX_SUBMON_TOUCH") == 0);
     }
 
     void keep_legacy_subscreen_topmost(HWND window, bool show) {

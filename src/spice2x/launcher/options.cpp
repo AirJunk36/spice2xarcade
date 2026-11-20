@@ -522,6 +522,13 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
             {"bottomright", ""},
         },
     };
+    c[launcher::Options::HideCardInsertedNotification] = {
+        .title = "Hide Card Inserted Notification",
+        .name = "hidecardtoast",
+        .desc = "Hide the P1/P2 card inserted popup while keeping card reads and other notifications.",
+        .type = OptionType::Bool,
+        .category = "General Overlay",
+    };
     c[launcher::Options::spice2x_FpsAutoShow] = {
         .title = "Auto Show FPS/Clock",
         .name = "sp2x-autofps",
@@ -789,7 +796,7 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::IIDXLegacySubscreen] = {
         .title = "IIDX Legacy Cabinet Subscreen",
         .name = "iidxlegacysub",
-        .desc = "Use the original iidx_btools_subscreen backend for keypads, ticker and effects.",
+        .desc = "Open the cabinet subscreen with touch keypads, ticker and effects.",
         .type = OptionType::Bool,
         .game_name = "Beatmania IIDX",
         .category = "Game Options",
@@ -797,7 +804,8 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::IIDXNoAutoLegacySubscreen] = {
         .title = "Disable Automatic IIDX Legacy Subscreen",
         .name = "iidxnoautolegacysub",
-        .desc = "Turn off automatic legacy subscreen startup with native BI2X in non-TDJ mode.",
+        .desc = "Turn off automatic legacy subscreen startup with native BI2X "
+            "for IIDX 25-26 or in non-TDJ mode.",
         .type = OptionType::Bool,
         .game_name = "Beatmania IIDX",
         .category = "Game Options",
@@ -814,7 +822,8 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::IIDXLegacyBackend] = {
         .title = "IIDX Legacy Subscreen Backend",
         .name = "iidxlegacybackend",
-        .desc = "Optional path to the original DLL. Empty uses the built-in legacy subscreen.",
+        .desc = "Optional iidx_btools_subscreen DLL. A matching-bit DLL runs the original UI. "
+            "The built-in renderer can read artwork from either bitness; empty looks for backend.dll.",
         .type = OptionType::Text,
         .game_name = "Beatmania IIDX",
         .category = "Game Options",

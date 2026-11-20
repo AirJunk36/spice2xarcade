@@ -25,6 +25,8 @@
 #endif
 
 constexpr double REFTIMES_PER_SEC = 10000000.;
+constexpr REFERENCE_TIME LEGACY_IIDX_DEFAULT_PERIOD = 100000; // 10 ms
+constexpr REFERENCE_TIME LEGACY_IIDX_POLLING_BUFFER = 4 * LEGACY_IIDX_DEFAULT_PERIOD;
 
 AsioBackend *ASIO_BACKEND = nullptr;
 
@@ -828,14 +830,16 @@ HRESULT AsioBackend::on_initialize(
     if (*ShareMode == AUDCLNT_SHAREMODE_SHARED) {
         // A shared WASAPI buffer covers several hardware periods. Polling
         // clients refill it using GetCurrentPadding and do not register an event.
-        const auto duration = std::clamp<REFERENCE_TIME>(*hnsBufferDuration, 0, 2000000);
-        const auto requested = static_cast<uint32_t>(
+        const auto requested = std::clamp<REFERENCE_TIME>(*hnsBufferDuration, 0, 2000000);
+        const bool event_callback = (*StreamFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK) != 0;
+        const auto duration = !event_callback && hooks::audio::ASIO_LEGACY_IIDX_XONAR_POLLING
+            ? std::max(requested, LEGACY_IIDX_POLLING_BUFFER) : requested;
+        const auto queue_frames = static_cast<uint32_t>(
             std::ceil(static_cast<double>(duration) * sample_rate / REFTIMES_PER_SEC));
         const auto period = static_cast<uint32_t>(this->asio_info_.buffer_preferred_size);
-        this->shared_buffer_frames = std::max(requested, 2 * period);
-        const char *mode = *StreamFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK ? "event" : "polling";
+        this->shared_buffer_frames = std::max(queue_frames, 2 * period);
         log_info("audio::asio", "Shared {} buffer: {} frames, ASIO period: {} frames at {} Hz",
-            mode, this->shared_buffer_frames, period, sample_rate);
+            event_callback ? "event" : "polling", this->shared_buffer_frames, period, sample_rate);
     }
 
     /*
@@ -981,7 +985,9 @@ HRESULT AsioBackend::on_get_device_period(
             ref_time);
 
     if (default_device_period) {
-        *default_device_period = ref_time;
+        // 32-bit IIDX uses the default Windows mixer period to size its polling stream.
+        *default_device_period = hooks::audio::ASIO_LEGACY_IIDX_XONAR_POLLING
+            ? std::max(ref_time, LEGACY_IIDX_DEFAULT_PERIOD) : ref_time;
     }
     if (minimum_device_period) {
         *minimum_device_period = ref_time;

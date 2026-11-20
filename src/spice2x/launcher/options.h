@@ -56,6 +56,7 @@ namespace launcher {
             OverlayKeyboardNavigation,
             OverlayScaling,
             NotificationPosition,
+            HideCardInsertedNotification,
             spice2x_FpsAutoShow,
             spice2x_FpsOpposite,
             FpsLocation,
