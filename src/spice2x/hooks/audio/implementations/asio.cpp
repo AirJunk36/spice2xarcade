@@ -826,19 +826,16 @@ HRESULT AsioBackend::on_initialize(
 
     this->shared_buffer_frames = 0;
     if (*ShareMode == AUDCLNT_SHAREMODE_SHARED) {
-        if (*StreamFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK) {
-            // Give the shared-mode mixer the requested headroom while ASIO still
-            // pulls and signals at the physical driver period.
-            const auto duration = std::clamp<REFERENCE_TIME>(*hnsBufferDuration, 0, 2000000);
-            const auto requested = static_cast<uint32_t>(
-                std::ceil(static_cast<double>(duration) * sample_rate / REFTIMES_PER_SEC));
-            const auto period = static_cast<uint32_t>(this->asio_info_.buffer_preferred_size);
-            this->shared_buffer_frames = std::max(requested, 2 * period);
-            log_info("audio::asio", "Shared buffer: {} frames, ASIO period: {} frames at {} Hz",
-                this->shared_buffer_frames, period, sample_rate);
-        } else {
-            log_warning("audio::asio", "Shared-mode ASIO conversion requires event callbacks");
-        }
+        // A shared WASAPI buffer covers several hardware periods. Polling
+        // clients refill it using GetCurrentPadding and do not register an event.
+        const auto duration = std::clamp<REFERENCE_TIME>(*hnsBufferDuration, 0, 2000000);
+        const auto requested = static_cast<uint32_t>(
+            std::ceil(static_cast<double>(duration) * sample_rate / REFTIMES_PER_SEC));
+        const auto period = static_cast<uint32_t>(this->asio_info_.buffer_preferred_size);
+        this->shared_buffer_frames = std::max(requested, 2 * period);
+        const char *mode = *StreamFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK ? "event" : "polling";
+        log_info("audio::asio", "Shared {} buffer: {} frames, ASIO period: {} frames at {} Hz",
+            mode, this->shared_buffer_frames, period, sample_rate);
     }
 
     /*
@@ -852,7 +849,7 @@ HRESULT AsioBackend::on_initialize(
         ? static_cast<REFERENCE_TIME>(std::ceil(
             REFTIMES_PER_SEC * this->shared_buffer_frames / sample_rate))
         : ref_time;
-    *hnsPeriodicity = ref_time;
+    *hnsPeriodicity = *ShareMode == AUDCLNT_SHAREMODE_SHARED ? 0 : ref_time;
 
     if (!is_supported_subformat(this->format_)) {
         return AUDCLNT_E_UNSUPPORTED_FORMAT;

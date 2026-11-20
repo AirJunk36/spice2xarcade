@@ -6,6 +6,7 @@
 #include <cstring>
 #include <vector>
 #include <limits>
+#include <type_traits>
 
 #ifdef min
 #undef min
@@ -117,10 +118,20 @@ constexpr double convert_number_to_double(T num) {
 
 template<typename T>
 constexpr T convert_double_to_number(double num) {
+    using Limits = std::numeric_limits<T>;
     constexpr auto ABSOLUTE_MAX_VALUE = conversion_limits<T>::absolute_max_value();
-    constexpr auto MAX_VALUE = static_cast<long>(std::numeric_limits<T>::max());
-
-    return static_cast<T>(std::min(std::lround(num * ABSOLUTE_MAX_VALUE), MAX_VALUE));
+    constexpr auto max_sample = Limits::max();
+    if (std::isnan(num)) {
+        return T{};
+    }
+    if (num <= -1.0) {
+        return static_cast<T>(Limits::min());
+    }
+    if (num >= static_cast<double>(max_sample) / ABSOLUTE_MAX_VALUE) {
+        return static_cast<T>(max_sample);
+    }
+    using Integer = std::remove_cv_t<decltype(max_sample)>;
+    return static_cast<T>(static_cast<Integer>(std::llround(num * ABSOLUTE_MAX_VALUE)));
 }
 
 // ...before Felix makes this mistake again, make sure 24-bit ints are converted with the correct range
