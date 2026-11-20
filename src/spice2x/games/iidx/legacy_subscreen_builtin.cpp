@@ -25,6 +25,7 @@ namespace games::iidx {
         constexpr UINT FORWARD_DOWN = WM_APP + 1;
         constexpr UINT FORWARD_MOVE = WM_APP + 2;
         constexpr UINT FORWARD_UP = WM_APP + 3;
+        constexpr UINT_PTR TOPMOST_TIMER = 1;
         constexpr UINT32 MOUSE_CONTACT = UINT32_MAX;
         std::atomic<HWND> forward_from {nullptr};
         std::atomic<HWND> forward_to {nullptr};
@@ -144,6 +145,12 @@ namespace games::iidx {
                         ValidateRect(hwnd, nullptr);
                         redraw_frames = std::max(redraw_frames, 1u);
                         return 0;
+                    case WM_TIMER:
+                        if (wp == TOPMOST_TIMER) {
+                            keep_legacy_subscreen_topmost(hwnd);
+                            return 0;
+                        }
+                        break;
                     case WM_CLOSE:
                     case WM_DISPLAYCHANGE:
                         closing = true;
@@ -395,7 +402,8 @@ namespace games::iidx {
                 if (!pointer_hook) {
                     log_warning("iidx::subscreen", "Could not install the game window pointer hook");
                 }
-                ShowWindow(window, SW_SHOWNOACTIVATE);
+                keep_legacy_subscreen_topmost(window, true);
+                SetTimer(window, TOPMOST_TIMER, LEGACY_SUBSCREEN_TOPMOST_INTERVAL_MS, nullptr);
                 ImGui::GetIO().DisplaySize = {
                     static_cast<float>(rect.right - rect.left),
                     static_cast<float>(rect.bottom - rect.top),

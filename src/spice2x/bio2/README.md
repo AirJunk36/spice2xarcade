@@ -147,6 +147,7 @@ Windows 8 or newer. Use `-iidxnoautolegacysub` to disable automatic startup,
 or `-iidxlegacysub` to request it explicitly. Set `-iidxlegacymonitor \\.\DISPLAY2`
 to select the secondary display. Spice keeps the assigned analog input until
 the corresponding screen slider is used and restores it when the screen closes.
+The subscreen stays above other windows while the game retains focus.
 
 To use the original standalone project DLL, set **Subscreen backend DLL** or
 pass `-iidxlegacybackend` with its path. The author's

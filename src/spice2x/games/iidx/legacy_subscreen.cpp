@@ -207,9 +207,16 @@ namespace games::iidx {
                 std::array<uint8_t, 5> previous_sliders {};
                 bool sliders_ready = false;
                 bool coin_down = false;
+                auto next_topmost_check = std::chrono::steady_clock::now();
                 log_info("iidx::subscreen", "Original subscreen window opened");
 
                 do {
+                    const auto now = std::chrono::steady_clock::now();
+                    if (now >= next_topmost_check) {
+                        keep_legacy_subscreen_topmost(hwnd);
+                        next_topmost_check = now + std::chrono::milliseconds(
+                            LEGACY_SUBSCREEN_TOPMOST_INTERVAL_MS);
+                    }
                     const auto ticker = legacy_subscreen_ticker();
                     if (ticker != previous_ticker && backend.write_ticker(ticker.data())) {
                         previous_ticker = ticker;
@@ -392,6 +399,18 @@ namespace games::iidx {
     bool is_legacy_subscreen_window(HWND window) {
         char name[sizeof(WINDOW_CLASS) + 1] {};
         return GetClassNameA(window, name, sizeof(name)) && std::strcmp(name, WINDOW_CLASS) == 0;
+    }
+
+    void keep_legacy_subscreen_topmost(HWND window, bool show) {
+        if (!show && !IsWindowVisible(window)) {
+            return;
+        }
+        constexpr UINT flags =
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS;
+        if (!SetWindowPos(window, HWND_TOPMOST, 0, 0, 0, 0, flags | (show ? SWP_SHOWWINDOW : 0))
+                && show) {
+            ShowWindow(window, SW_SHOWNOACTIVATE);
+        }
     }
 
     uint16_t legacy_subscreen_keypad(size_t player) {
