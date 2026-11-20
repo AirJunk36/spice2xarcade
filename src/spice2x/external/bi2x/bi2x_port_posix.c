@@ -38,6 +38,11 @@ struct bi2x_thread {
 
 int bi2x_serial_open(struct bi2x_serial **out, const char *port)
 {
+    return bi2x_serial_open_baud(out, port, 115200);
+}
+
+int bi2x_serial_open_baud(struct bi2x_serial **out, const char *port, unsigned int baud)
+{
     struct termios tio;
     struct bi2x_serial *s;
     int fd;
@@ -60,8 +65,8 @@ int bi2x_serial_open(struct bi2x_serial **out, const char *port)
 
     if (tcgetattr(fd, &tio) == 0) {
         cfmakeraw(&tio);
-        cfsetispeed(&tio, B115200);
-        cfsetospeed(&tio, B115200);
+        cfsetispeed(&tio, baud == 57600 ? B57600 : B115200);
+        cfsetospeed(&tio, baud == 57600 ? B57600 : B115200);
         tcsetattr(fd, TCSANOW, &tio);
     }
 

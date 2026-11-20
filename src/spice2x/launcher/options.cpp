@@ -940,6 +940,31 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
         .game_name = "Beatmania IIDX",
         .category = "Game Overlay",
     };
+    c[launcher::Options::SDVXNativeIO] = {
+        .title = "Native SDVX I/O Hardware",
+        .name = "sdvxnativeio",
+        .desc = "Connect directly to a physical SDVX BI2A or KFCA board.",
+        .type = OptionType::Bool,
+        .game_name = "Sound Voltex",
+        .category = "Game Options",
+    };
+    c[launcher::Options::SDVXNativeBoard] = {
+        .title = "Native SDVX Board",
+        .name = "sdvxioboard",
+        .desc = "Select the attached hardware. Empty selects SDVX BI2A.",
+        .type = OptionType::Enum,
+        .game_name = "Sound Voltex",
+        .category = "Game Options",
+        .elements = {{"bi2a", "SDVX BI2A"}, {"kfca", "KFCA / SDVX 1-4"}},
+    };
+    c[launcher::Options::SDVXNativePort] = {
+        .title = "Native SDVX I/O Port",
+        .name = "sdvxioport",
+        .desc = "Physical COM port. Empty auto-detects BI2A or uses COM3 for KFCA.",
+        .type = OptionType::Text,
+        .game_name = "Sound Voltex",
+        .category = "Game Options",
+    };
     c[launcher::Options::LoadSoundVoltexModule] = {
         .title = "Force Load Sound Voltex Module",
         .name = "sdvx",

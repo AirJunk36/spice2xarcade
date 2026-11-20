@@ -12,8 +12,10 @@
 
 std::string Analog::getDisplayString(rawinput::RawInputManager *manager) {
     if (bio2::is_device(this->getDeviceIdentifier())) {
-        return this->getIndex() < bio2::analog_names().size()
-            ? "BIO2 / " + bio2::analog_names()[this->getIndex()]
+        const auto board = this->getDeviceIdentifier() == bio2::SDVX_DEVICE_ID
+            ? bio2::Board::SDVX_BI2A : bio2::Board::BI2X;
+        return this->getIndex() < bio2::analog_names(board).size()
+            ? "BIO2 / " + bio2::analog_names(board)[this->getIndex()]
             : "Invalid BIO2 analog";
     }
 

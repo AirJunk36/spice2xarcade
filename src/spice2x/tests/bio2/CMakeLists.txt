@@ -30,4 +30,8 @@ if(NOT WIN32)
     add_test(NAME bio2_legacy_protocol COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/run_legacy_sim.py" "$<TARGET_FILE:bio2_legacy_tests>")
     set_tests_properties(bio2_legacy_protocol PROPERTIES TIMEOUT 35)
+    add_test(NAME bio2_sdvx_protocol COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/run_legacy_sim.py" "$<TARGET_FILE:bio2_legacy_tests>"
+        sdvx-bi2a sdvx-kfca)
+    set_tests_properties(bio2_sdvx_protocol PROPERTIES TIMEOUT 35)
 endif()

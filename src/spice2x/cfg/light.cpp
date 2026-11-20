@@ -12,9 +12,11 @@
 
 std::string Light::getDisplayString(rawinput::RawInputManager* manager) {
     if (bio2::is_device(this->getDeviceIdentifier())) {
+        const auto board = this->getDeviceIdentifier() == bio2::SDVX_DEVICE_ID
+            ? bio2::Board::SDVX_BI2A : bio2::Board::BI2X;
         const auto index = this->getIndex();
-        return index < bio2::light_names().size()
-            ? "BIO2 / " + bio2::light_names()[index] : "Invalid BIO2 output";
+        return index < bio2::light_names(board).size()
+            ? "BIO2 / " + bio2::light_names(board)[index] : "Invalid BIO2 output";
     }
 
     // get index string

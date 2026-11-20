@@ -1,4 +1,4 @@
-# Native IIDX cabinet I/O and legacy subscreen
+# Native cabinet I/O and IIDX legacy subscreen
 
 IIDX and SDVX use the standard **Buttons** page for binding inputs.
 In IIDX, the separate **BIO2 Buttons** and **BIO2 Lights** pages configure
@@ -91,6 +91,34 @@ the connection requests a blackout before releasing the device. Hardware I/O
 runs on a dedicated worker; game input reads use cached snapshots. ACIO framing
 uses fixed buffers, its reply storage is reused, and IO2 reuses its completion
 event. Normal BI2X tape updates do not allocate temporary vectors.
+
+## Sound Voltex cabinet I/O
+
+Select **Sound Voltex** in SpiceCfg. **BIO2 Buttons** provides **Auto-bind
+matching inputs**, **Bind**, and **Bind (many)**. Auto-bind fills matching
+unbound keys and both knobs. **BIO2 Lights** provides remapping and output tests.
+The regular **Buttons** page remains available for keyboard and controller bindings.
+
+| Physical board | Game-side adapters | Native controls |
+| --- | --- | --- |
+| SDVX BI2A | KFCA in SDVX 1–4, BI2A, or UFC/BI2X in Valkyrie mode | Keys, two knobs, key lamps, paired RGB wing lamps, woofer, controller, generator, pop and title lamps |
+| SDVX KFCA | KFCA, BI2A, or UFC/BI2X in Valkyrie mode | Keys, two knobs, key lamps and original RGB outputs |
+
+Check **Native I/O hardware**, select the board, and set **Port / USB path**
+to the physical COM port. KFCA uses COM3 by default at 57600 baud. BI2A uses
+115200 baud and an installed SDVX BI2A firmware. Keep the game's virtual
+I/O enabled. Example launch options:
+
+```
+-sdvxnativeio -sdvxioboard bi2a -sdvxioport COM5
+-sdvxnativeio -sdvxioboard kfca -sdvxioport COM3
+```
+
+The BI2A and KFCA backends have synthetic serial tests. Physical-board and
+per-version game testing is pending. The Valkyrie UFC game adapter is available
+as a destination for mapped legacy hardware. Support for the physical
+Valkyrie BI2X/UFC board is pending its native communication and initialization
+protocol. Only the physical board's lamp channels are available when remapping.
 
 ## Original subscreen for old games
 

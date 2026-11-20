@@ -33,42 +33,70 @@ namespace bio2 {
         return true;
     }
 
+    bool parse_sdvx_board(std::string_view name, Board &board) {
+        if (name.empty() || name == "bi2a") {
+            board = Board::SDVX_BI2A;
+        } else if (name == "kfca") {
+            board = Board::SDVX_KFCA;
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    const char *device_id(Board board) {
+        return is_sdvx(board) ? SDVX_DEVICE_ID : DEVICE_ID;
+    }
+
     const char *board_name(Board board) {
         switch (board) {
             case Board::BI2A: return "BI2A";
             case Board::IO2: return "IO2 / EZUSB FX2";
+            case Board::SDVX_BI2A: return "SDVX BI2A";
+            case Board::SDVX_KFCA: return "KFCA / SDVX 1-4";
             default: return "BI2X / Lightning Model";
         }
     }
 
     bool button_available(Board board, size_t channel) {
+        if (is_sdvx(board)) {
+            return channel < 11;
+        }
         return channel < (board == Board::BI2X ? BUTTON_COUNT : 21);
     }
 
     bool analog_available(Board board, size_t channel) {
-        return channel < (board == Board::BI2X ? 2u : 7u);
+        return channel < (board == Board::BI2X || is_sdvx(board) ? 2u : 7u);
     }
 
     bool light_available(Board board, size_t channel) {
+        if (is_sdvx(board)) {
+            return channel < (board == Board::SDVX_KFCA ? 28u : 31u);
+        }
         return board == Board::BI2X ? channel < BI2X_LIGHT_COUNT
             : channel < 18 || (BI2X_LIGHT_COUNT <= channel && channel < LIGHT_COUNT);
     }
 
-    const std::vector<std::string> &analog_names() {
+    const std::vector<std::string> &analog_names(Board board) {
+        static const std::vector<std::string> sdvx {"VOL-L", "VOL-R"};
         static const std::vector<std::string> names {
             "Turntable P1", "Turntable P2", "VEFX", "Low-EQ", "Hi-EQ", "Filter", "Play Volume",
         };
-        return names;
+        return is_sdvx(board) ? sdvx : names;
     }
 
-    const std::vector<std::string> &button_names() {
+    const std::vector<std::string> &button_names(Board board) {
+        static const std::vector<std::string> sdvx {
+            "Test", "Service", "Coin Mech", "Start", "BT-A", "BT-B", "BT-C", "BT-D",
+            "FX-L", "FX-R", "Headphone",
+        };
         static const std::vector<std::string> names {
             "Test", "Service", "Coin Mech", "P1 Start", "P2 Start", "VEFX", "EFFECT",
             "P1 1", "P1 2", "P1 3", "P1 4", "P1 5", "P1 6", "P1 7",
             "P2 1", "P2 2", "P2 3", "P2 4", "P2 5", "P2 6", "P2 7",
             "P1 Headphone", "P2 Headphone",
         };
-        return names;
+        return is_sdvx(board) ? sdvx : names;
     }
 
     const std::vector<std::string> &tape_names() {
@@ -82,7 +110,23 @@ namespace bio2 {
         return names;
     }
 
-    const std::vector<std::string> &light_names() {
+    const std::vector<std::string> &light_names(Board board) {
+        if (is_sdvx(board)) {
+            static const auto sdvx = [] {
+                std::vector<std::string> result {
+                    "BT-A", "BT-B", "BT-C", "BT-D", "FX-L", "FX-R", "Start",
+                };
+                for (const auto *name : {"Wing Left Up", "Wing Right Up", "Wing Left Low",
+                        "Wing Right Low", "Woofer", "Controller", "Generator"}) {
+                    for (const auto *color : {" R", " G", " B"}) {
+                        result.emplace_back(std::string(name) + color);
+                    }
+                }
+                result.insert(result.end(), {"Pop", "Title Left", "Title Right"});
+                return result;
+            }();
+            return sdvx;
+        }
         static const auto names = [] {
             std::vector<std::string> result {
                 "P1 1", "P1 2", "P1 3", "P1 4", "P1 5", "P1 6", "P1 7",
@@ -110,10 +154,14 @@ namespace bio2 {
     }
 
     bool is_device(std::string_view id) {
-        return id == DEVICE_ID;
+        return id == DEVICE_ID || id == SDVX_DEVICE_ID;
     }
 
     namespace {
+        bool matches_device(Board board, std::string_view device) {
+            return device.empty() || device == device_id(board);
+        }
+
         uint8_t brightness(float value) {
             return static_cast<uint8_t>(std::lround(value * 255.f));
         }
@@ -247,10 +295,17 @@ namespace bio2 {
                     {
                         std::lock_guard<std::mutex> lock(mutex);
                         output = legacy_output;
-                        for (size_t i = 0; i < output.lamps.size(); i++) {
-                            const auto channel = i < 18 ? i : BI2X_LIGHT_COUNT + i - 18;
-                            output.lamps[i] = test == static_cast<int>(channel)
-                                || lights[channel] > 0.f;
+                        if (is_sdvx(board)) {
+                            for (size_t i = 0; i < output.sdvx_lamps.size(); ++i) {
+                                output.sdvx_lamps[i] =
+                                    test == static_cast<int>(i) ? 255 : brightness(lights[i]);
+                            }
+                        } else {
+                            for (size_t i = 0; i < output.lamps.size(); i++) {
+                                const auto channel = i < 18 ? i : BI2X_LIGHT_COUNT + i - 18;
+                                output.lamps[i] = test == static_cast<int>(channel)
+                                    || lights[channel] > 0.f;
+                            }
                         }
                     }
                     LegacyInput input;
@@ -413,25 +468,25 @@ namespace bio2 {
         b.shutdown();
     }
 
-    Status status() {
+    Status status(std::string_view device) {
         auto &b = backend();
         std::lock_guard<std::mutex> lock(b.mutex);
-        return b.state;
+        return matches_device(b.board, device) ? b.state : Status {};
     }
 
-    bool read_button(size_t channel, bool invert) {
+    bool read_button(size_t channel, bool invert, std::string_view device) {
         auto &b = backend();
         std::lock_guard<std::mutex> lock(b.mutex);
-        return button_available(b.board, channel) && b.state.online
+        return b.state.online && matches_device(b.board, device) && button_available(b.board, channel)
             && (b.buttons[channel] != invert);
     }
 
-    uint32_t pressed_buttons() {
+    uint32_t pressed_buttons(std::string_view device) {
         static_assert(BUTTON_COUNT <= 32);
         auto &b = backend();
         std::lock_guard<std::mutex> lock(b.mutex);
         uint32_t pressed = 0;
-        if (b.state.online) {
+        if (b.state.online && matches_device(b.board, device)) {
             for (size_t i = 0; i < BUTTON_COUNT; ++i) {
                 if (button_available(b.board, i) && b.buttons[i]) {
                     pressed |= uint32_t{1} << i;
@@ -441,18 +496,22 @@ namespace bio2 {
         return pressed;
     }
 
-    float read_analog(size_t channel) {
+    float read_analog(size_t channel, std::string_view device) {
         auto &b = backend();
         std::lock_guard<std::mutex> lock(b.mutex);
-        return analog_available(b.board, channel) && b.state.online ? b.analogs[channel] : 0.f;
+        return b.state.online && matches_device(b.board, device) && analog_available(b.board, channel)
+            ? b.analogs[channel] : 0.f;
     }
 
-    void write_light(size_t channel, float value) {
+    void write_light(size_t channel, float value, std::string_view device) {
         if (channel >= LIGHT_COUNT || !std::isfinite(value)) {
             return;
         }
         auto &b = backend();
         std::lock_guard<std::mutex> lock(b.mutex);
+        if (!matches_device(b.board, device)) {
+            return;
+        }
         value = std::clamp(value, 0.f, 1.f);
         if (b.lights[channel] != value) {
             b.lights[channel] = value;
@@ -460,10 +519,10 @@ namespace bio2 {
         }
     }
 
-    float read_light(size_t channel) {
+    float read_light(size_t channel, std::string_view device) {
         auto &b = backend();
         std::lock_guard<std::mutex> lock(b.mutex);
-        return channel < LIGHT_COUNT ? b.lights[channel] : 0.f;
+        return channel < LIGHT_COUNT && matches_device(b.board, device) ? b.lights[channel] : 0.f;
     }
 
     void write_ticker(const char *text, size_t size) {
@@ -477,9 +536,12 @@ namespace bio2 {
             b.legacy_output.ticker.begin());
     }
 
-    void test_light(int channel) {
+    void test_light(int channel, std::string_view device) {
         auto &b = backend();
         std::lock_guard<std::mutex> lock(b.mutex);
+        if (!matches_device(b.board, device)) {
+            return;
+        }
         channel = channel >= 0 && channel < static_cast<int>(LIGHT_COUNT) ? channel : -1;
         if (b.test == channel) {
             return;

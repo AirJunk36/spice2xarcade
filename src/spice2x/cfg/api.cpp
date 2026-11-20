@@ -134,7 +134,8 @@ GameAPI::Buttons::State GameAPI::Buttons::get_button_state(
 
         if (bio2::is_device(current_button->getDeviceIdentifier())) {
             const bool pressed = bio2::read_button(
-                current_button->getVKey(), current_button->getInvert());
+                current_button->getVKey(), current_button->getInvert(),
+                current_button->getDeviceIdentifier());
             current_button->setLastState(pressed ? BUTTON_PRESSED : BUTTON_NOT_PRESSED);
             if (pressed) {
                 return BUTTON_PRESSED;
@@ -977,7 +978,7 @@ float GameAPI::Analogs::getState(rawinput::RawInputManager *manager, Analog &ana
     }
 
     if (bio2::is_device(analog.getDeviceIdentifier())) {
-        auto value = bio2::read_analog(analog.getIndex());
+        auto value = bio2::read_analog(analog.getIndex(), analog.getDeviceIdentifier());
         if (analog.getInvert()) {
             value = 1.f - value;
         }
@@ -1194,7 +1195,7 @@ void GameAPI::Lights::writeLight(rawinput::RawInputManager *manager, Light &ligh
     // get device
     auto &devid = light.getDeviceIdentifier();
     if (bio2::is_device(devid)) {
-        bio2::write_light(light.getIndex(), light.override_enabled ? light.override_state : value);
+        bio2::write_light(light.getIndex(), light.override_enabled ? light.override_state : value, devid);
     }
     auto device = manager->devices_get(devid, false);
 

@@ -18,6 +18,7 @@ namespace bio2 {
         // Fourteen keys, four panel lamps, eight spotlights, neon.
         std::array<bool, 27> lamps {};
         std::array<uint8_t, 9> ticker {' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '};
+        std::array<uint8_t, 31> sdvx_lamps {};
     };
 
     using Io2Packet = std::array<uint8_t, 64>;
@@ -25,6 +26,9 @@ namespace bio2 {
     std::array<uint8_t, 48> encode_bi2a(const LegacyOutput &output);
     LegacyInput decode_io2(const Io2Packet &packet);
     Io2Packet encode_io2(const LegacyOutput &output);
+    bool decode_sdvx(Board board, const std::vector<uint8_t> &data, LegacyInput &input);
+    std::array<uint8_t, 40> encode_sdvx_bi2a(const LegacyOutput &output);
+    std::array<uint8_t, 24> encode_sdvx_kfca(const LegacyOutput &output);
 
     // Windows uses CyUSB3 endpoint transfers. POSIX is a test transport only.
     class Io2Usb {

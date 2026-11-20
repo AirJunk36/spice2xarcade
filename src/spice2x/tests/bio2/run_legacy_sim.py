@@ -1,4 +1,4 @@
-"""Exercise the real backend against synthetic BI2A ACIO and IO2 endpoint peers.
+"""Exercise the real backend against synthetic BI2A, KFCA and IO2 peers.
 
 The IO2 POSIX transport carries endpoint numbers and 64-byte packets over a pty;
 it tests the polling/codec path, not the Windows kernel driver or USB hardware.
@@ -22,6 +22,8 @@ def frame(address, command, sequence, data):
 
 
 def run(executable, kind):
+    sdvx = kind.startswith('sdvx-')
+    kfca = kind == 'sdvx-kfca'
     master, slave = pty.openpty()
     path = os.ttyname(slave)
     stopped = threading.Event()
@@ -101,13 +103,29 @@ def run(executable, kind):
                         assert address == 0 and payload == b'\0'
                         response = b'\1'
                     elif command == 2:
-                        response = bytes(8) + b'BI2A' + bytes(32)
+                        response = bytes(8) + (b'KFCA' if kfca else b'BI2A') + bytes(32)
                     elif command == 3:
                         response = b'\0'
                     elif command == 0x100:
-                        assert payload == b'\x2d', 'sub-IO initialization parameter'
+                        assert not kfca and payload == (b'\x3b' if sdvx else b'\x2d')
                         initialized = True
                         response = b'\0'
+                    elif command == 0x120:
+                        assert kfca and payload == struct.pack('>H', 6000)
+                        initialized = True
+                        response = b'\0'
+                    elif command == 0x113:
+                        assert sdvx and initialized and size == (24 if kfca else 40)
+                        history.append(payload)
+                        data = bytearray(16)
+                        data[:4] = struct.pack('>HH', (257 << 6) | (0x34 if kfca else 0x0e),
+                                               1023 << 6)
+                        if kfca:
+                            data[9], data[11] = 0x2a, 0x28
+                        else:
+                            data[9], data[10] = 0xab, 0x80
+                        response = bytes(data)
+                        poll_count += 1
                     elif command == 0x152:
                         assert initialized and size == 48
                         history.append(payload)
@@ -146,6 +164,21 @@ def run(executable, kind):
         result = subprocess.run([executable, kind, path], timeout=15, capture_output=True, text=True)
         assert result.returncode == 0, result.stdout + result.stderr
         assert not failures, failures
+        if sdvx:
+            assert poll_count > 30
+            if kfca:
+                lamp = lambda data, key: bool(data[2] & (0x20 << key))
+                lit = lambda data: data[4] == 255 and data[23] == 128 and data[3] == 8
+                dark = lambda data: data == b'\0\x40' + bytes(22)
+            else:
+                lamp = lambda data, key: data[12 + key] == 127
+                lit = lambda data: data[31] == 127 and data[22] == 128 and data[23] == 255
+                dark = lambda data: not any(data)
+            assert any(lamp(data, 0) and lamp(data, 1) and lit(data) for data in history)
+            assert any(lamp(data, 0) and not lamp(data, 1) and lit(data) for data in history)
+            assert dark(history[-1]), 'SDVX shutdown blackout'
+            print(f'{kind}: {poll_count} successful polls; keys, knobs, lamps and blackout passed')
+            return
         assert poll_count > 30
         if kind == 'io2':
             lamp = lambda data, key: bool(data[11] & (1 << key))
@@ -169,5 +202,5 @@ def run(executable, kind):
         os.close(master)
 
 
-for board in ('bi2a', 'io2'):
+for board in sys.argv[2:] or ('bi2a', 'io2'):
     run(sys.argv[1], board)

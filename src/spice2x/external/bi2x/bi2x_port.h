@@ -35,6 +35,7 @@ struct bi2x_serial;
    way libaio does. Otherwise a device path such as "COM3" / "\\\\.\\COM3"
    (win32) or "/dev/pts/5" (posix). Returns 0 on success. */
 int bi2x_serial_open(struct bi2x_serial **out, const char *port);
+int bi2x_serial_open_baud(struct bi2x_serial **out, const char *port, unsigned int baud);
 void bi2x_serial_close(struct bi2x_serial *s);
 
 /* Returns 0 on success, -1 on an I/O error (device probably gone). */

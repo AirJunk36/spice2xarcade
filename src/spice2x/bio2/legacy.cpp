@@ -88,6 +88,82 @@ namespace bio2 {
         return result;
     }
 
+    bool decode_sdvx(Board board, const std::vector<uint8_t> &data, LegacyInput &input) {
+        if (data.size() != 16 || !is_sdvx(board)) {
+            return false;
+        }
+        const auto be16 = [&](size_t i) { return (uint16_t{data[i]} << 8) | data[i + 1]; };
+        input = {};
+        input.analogs[0] = (be16(0) >> 6) / 1023.f;
+        input.analogs[1] = (be16(2) >> 6) / 1023.f;
+        if (board == Board::SDVX_BI2A) {
+            input.buttons[0] = data[1] & 0x08; // Test, Service, Coin
+            input.buttons[1] = data[1] & 0x04;
+            input.buttons[2] = data[1] & 0x02;
+            for (size_t i = 0; i < 6; ++i) {
+                input.buttons[3 + i] = data[9] & (0x20 >> i); // Start, BT-A–D, FX-L
+            }
+            input.buttons[9] = data[10] & 0x80;
+            input.buttons[10] = data[9] & 0x80;
+        } else {
+            const auto gpio0 = be16(8);
+            const auto gpio1 = be16(10);
+            input.buttons[0] = data[1] & 0x10;
+            input.buttons[1] = data[1] & 0x20;
+            input.buttons[2] = data[1] & 0x04;
+            for (size_t i = 0; i < 4; ++i) {
+                input.buttons[3 + i] = gpio0 & (0x08 >> i);
+            }
+            input.buttons[7] = gpio1 & 0x20;
+            input.buttons[8] = gpio1 & 0x10;
+            input.buttons[9] = gpio1 & 0x08;
+            input.buttons[10] = gpio0 & 0x20;
+        }
+        return true;
+    }
+
+    std::array<uint8_t, 40> encode_sdvx_bi2a(const LegacyOutput &output) {
+        std::array<uint8_t, 40> result {};
+        const auto &lights = output.sdvx_lamps;
+        result[11] = lights[6] / 2; // Start
+        for (size_t i = 0; i < 6; ++i) {
+            result[12 + i] = lights[i] / 2;
+        }
+        for (size_t color = 0; color < 3; ++color) {
+            result[31 + color] = (lights[7 + color] + lights[10 + color]) / 2;
+            result[34 + color] = (lights[13 + color] + lights[16 + color]) / 2;
+        }
+        result[3] = lights[19];
+        result[4] = lights[20];
+        result[6] = lights[21];
+        std::copy_n(lights.begin() + 22, 3, result.begin() + 7);
+        std::copy_n(lights.begin() + 25, 3, result.begin() + 21);
+        for (size_t i = 0; i < 3; ++i) {
+            result[27 + i] = lights[28 + i] / 2;
+        }
+        return result;
+    }
+
+    std::array<uint8_t, 24> encode_sdvx_kfca(const LegacyOutput &output) {
+        std::array<uint8_t, 24> result {};
+        const auto &lights = output.sdvx_lamps;
+        constexpr uint8_t bits[] {13, 14, 15, 0, 1, 2, 12};
+        uint32_t gpio = 1u << 22; // Standard KFCA output-enable bit.
+        for (size_t i = 0; i < std::size(bits); ++i) {
+            if (lights[i]) {
+                gpio |= 1u << bits[i];
+            }
+        }
+        if (lights[27]) {
+            gpio |= 1u << 3;
+        }
+        for (size_t i = 0; i < 4; ++i) {
+            result[i] = static_cast<uint8_t>(gpio >> (24 - i * 8));
+        }
+        std::copy_n(lights.begin() + 7, 20, result.begin() + 4);
+        return result;
+    }
+
     LegacyBoard::~LegacyBoard() {
         close();
     }
@@ -101,6 +177,9 @@ namespace bio2 {
     }
 
     const char *LegacyBoard::error() const {
+        if (is_sdvx(kind)) {
+            return "SDVX board unavailable. Check the physical COM port and board type.";
+        }
         return kind == Board::IO2
             ? "IO2 unavailable. Check the USB path, CyUSB3 driver and loaded IIDX FX2 firmware."
             : "BI2A unavailable. Check the serial port and installed IIDX BI2A firmware.";
@@ -198,8 +277,10 @@ namespace bio2 {
             ready = usb.open(port);
             return ready;
         }
-        const auto path = port.empty() ? find_bi2a_port() : port;
-        if (path.empty() || bi2x_serial_open(&serial, path.c_str()) != 0) {
+        const bool kfca = kind == Board::SDVX_KFCA;
+        const auto path = port.empty() ? (kfca ? "COM3" : find_bi2a_port()) : port;
+        if (path.empty() ||
+                bi2x_serial_open_baud(&serial, path.c_str(), kfca ? 57600 : 115200) != 0) {
             return false;
         }
         auto pause = [&](unsigned int milliseconds) {
@@ -248,7 +329,7 @@ namespace bio2 {
             if (!exchange(address, 2, nullptr, 0, reply) || reply.size() < 12) {
                 return false;
             }
-            if (std::memcmp(reply.data() + 8, "BI2A", 4) == 0) {
+            if (std::memcmp(reply.data() + 8, kfca ? "KFCA" : "BI2A", 4) == 0) {
                 node = address;
             }
             if (!exchange(address, 3, nullptr, 0, reply) || reply.size() != 1
@@ -256,8 +337,14 @@ namespace bio2 {
                 return false;
             }
         }
-        // Initialize the sub-I/O relay; without 0x2d only the fourteen keys work.
-        const uint8_t init = 0x2d;
+        if (kfca) {
+            const uint8_t watchdog[] {23, 112}; // 6000 ms, big endian
+            ready = running && node != 0 &&
+                exchange(node, 0x120, watchdog, sizeof(watchdog), reply);
+            return ready;
+        }
+        // BI2A sub-I/O uses a different initialization parameter for SDVX.
+        const uint8_t init = kind == Board::SDVX_BI2A ? 0x3b : 0x2d;
         ready = running && node != 0 && exchange(node, 0x100, &init, 1, reply)
             && reply.size() == 1 && reply[0] == 0;
         return ready;
@@ -274,6 +361,16 @@ namespace bio2 {
             }
             input = decode_io2(packet);
             return true;
+        }
+        if (kind == Board::SDVX_BI2A) {
+            const auto bytes = encode_sdvx_bi2a(output);
+            return exchange(node, 0x113, bytes.data(), bytes.size(), reply)
+                && decode_sdvx(kind, reply, input);
+        }
+        if (kind == Board::SDVX_KFCA) {
+            const auto bytes = encode_sdvx_kfca(output);
+            return exchange(node, 0x113, bytes.data(), bytes.size(), reply)
+                && decode_sdvx(kind, reply, input);
         }
         const auto data = encode_bi2a(output);
         return exchange(node, 0x152, data.data(), data.size(), reply)

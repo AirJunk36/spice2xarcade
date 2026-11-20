@@ -126,7 +126,7 @@ static int find_device_path(char *out, size_t cap)
     return found ? 0 : -1;
 }
 
-static int configure(HANDLE fd)
+static int configure(HANDLE fd, unsigned int baud)
 {
     DCB dcb;
     COMMTIMEOUTS to;
@@ -142,7 +142,7 @@ static int configure(HANDLE fd)
     }
 
     /* same line settings AIO_SCI_COMM applies for the BI2X */
-    dcb.BaudRate = 115200;
+    dcb.BaudRate = baud;
     dcb.ByteSize = 8;
     dcb.Parity = NOPARITY;
     dcb.StopBits = ONESTOPBIT;
@@ -187,6 +187,11 @@ static int configure(HANDLE fd)
 
 int bi2x_serial_open(struct bi2x_serial **out, const char *port)
 {
+    return bi2x_serial_open_baud(out, port, 115200);
+}
+
+int bi2x_serial_open_baud(struct bi2x_serial **out, const char *port, unsigned int baud)
+{
     char path[1024];
     HANDLE fd;
     struct bi2x_serial *s;
@@ -213,7 +218,7 @@ int bi2x_serial_open(struct bi2x_serial **out, const char *port)
         return -1;
     }
 
-    if (configure(fd) != 0) {
+    if (configure(fd, baud) != 0) {
         bi2x_warn("failed to configure %s: %lu", path, GetLastError());
         CloseHandle(fd);
         return -1;

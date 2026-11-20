@@ -525,7 +525,8 @@ namespace overlay::windows {
 
     void Config::build_controller_tab(float page_offset, ControllerPage *page_selected_new) {
         const float content_height = ImGui::GetWindowContentRegionMax().y - page_offset;
-        const bool native_bio2 = this->games_selected_name == "Beatmania IIDX";
+        const bool native_bio2 = this->games_selected_name == "Beatmania IIDX" ||
+            this->games_selected_name == "Sound Voltex";
         const float nav_width = overlay::apply_scaling(native_bio2 ? 144 : 99);
         auto page_groups = CONTROLLER_PAGE_GROUPS;
         if (native_bio2) {
@@ -884,9 +885,14 @@ namespace overlay::windows {
     }
 
     static bio2::Board bio2_config_board(const std::string &game) {
-        bio2::Board board = bio2::Board::BI2X;
-        bio2::parse_board(games::get_options(game)->at(
-            launcher::Options::IIDXBIO2Board).value_text(), board);
+        const auto &options = *games::get_options(game);
+        const bool sdvx = game == "Sound Voltex";
+        auto board = sdvx ? bio2::Board::SDVX_BI2A : bio2::Board::BI2X;
+        if (sdvx) {
+            bio2::parse_sdvx_board(options.at(launcher::Options::SDVXNativeBoard).value_text(), board);
+        } else {
+            bio2::parse_board(options.at(launcher::Options::IIDXBIO2Board).value_text(), board);
+        }
         return board;
     }
 
@@ -923,27 +929,39 @@ namespace overlay::windows {
     void Config::build_bio2_connection() {
         auto &options = *games::get_options(this->games_selected_name);
         const auto &game = games_list[games_selected];
-        auto &enabled_option = options.at(launcher::Options::IIDXBI2XNative);
+        const bool sdvx = this->games_selected_name == "Sound Voltex";
+        auto board = bio2_config_board(this->games_selected_name);
+        const auto *device = bio2::device_id(board);
+        auto &enabled_option = options.at(sdvx ? launcher::Options::SDVXNativeIO
+            : launcher::Options::IIDXBI2XNative);
         bool enabled = enabled_option.value_bool();
         if (ImGui::Checkbox("Native I/O hardware", &enabled)) {
             enabled_option.value = enabled ? "1" : "";
             ::Config::getInstance().updateBinding(game, enabled_option);
-            if (!enabled) {
+            if (!enabled && bio2::status(device).started) {
                 bio2::stop();
             }
         }
         ImGui::SameLine();
-        const auto state = bio2::status();
+        const auto state = bio2::status(device);
         ImGui::TextUnformatted(state.online ? "Online" :
             (state.started ? "Connecting / reconnecting..." : "Disconnected"));
-        auto &board_option = options.at(launcher::Options::IIDXBIO2Board);
-        auto board = bio2_config_board(this->games_selected_name);
+        auto &board_option = options.at(sdvx ? launcher::Options::SDVXNativeBoard
+            : launcher::Options::IIDXBIO2Board);
+        auto &port = options.at(sdvx ? launcher::Options::SDVXNativePort
+            : launcher::Options::IIDXBI2XPort);
         if (ImGui::BeginCombo("Physical board", bio2::board_name(board))) {
-            for (const auto *name : {"bi2x", "bi2a", "io2"}) {
+            for (const auto *name : {"bi2x", "bi2a", "io2", "kfca"}) {
                 bio2::Board item;
-                bio2::parse_board(name, item);
+                const bool available = sdvx ? bio2::parse_sdvx_board(name, item)
+                    : bio2::parse_board(name, item);
+                if (!available) {
+                    continue;
+                }
                 if (ImGui::Selectable(bio2::board_name(item), board == item)) {
-                    bio2::stop();
+                    if (state.started) {
+                        bio2::stop();
+                    }
                     board = item;
                     board_option.value = name;
                     ::Config::getInstance().updateBinding(game, board_option);
@@ -952,7 +970,6 @@ namespace overlay::windows {
             ImGui::EndCombo();
         }
         if (ImGui::CollapsingHeader("I/O connection")) {
-            auto &port = options.at(launcher::Options::IIDXBI2XPort);
             auto &directory = options.at(launcher::Options::IIDXBI2XModules);
             ImGui::InputText("Port / USB path (empty = auto)", &port.value);
             if (ImGui::IsItemDeactivatedAfterEdit()) {
@@ -966,7 +983,7 @@ namespace overlay::windows {
             }
             auto &reset = options.at(launcher::Options::IIDXBI2XSkipReset);
             bool skip = reset.value_bool();
-            if (board != bio2::Board::IO2 && ImGui::Checkbox("Skip board reset", &skip)) {
+            if (!sdvx && board != bio2::Board::IO2 && ImGui::Checkbox("Skip board reset", &skip)) {
                 reset.value = skip ? "1" : "";
                 ::Config::getInstance().updateBinding(game, reset);
             }
@@ -976,6 +993,10 @@ namespace overlay::windows {
             } else if (board == bio2::Board::IO2) {
                 ImGui::TextWrapped("Requires CyUSB3 and IIDX FX2 firmware already loaded on the "
                     "board. Select the real USB device path, not the game's emulated Ezusb-0.");
+            } else if (sdvx) {
+                ImGui::TextWrapped(board == bio2::Board::SDVX_KFCA
+                    ? "KFCA uses 57600 baud. Empty port uses COM3."
+                    : "Requires installed SDVX BI2A firmware. Empty port detects USB BIO2.");
             } else {
                 ImGui::TextWrapped("Requires installed IIDX BI2A firmware. "
                     "Empty port detects USB 1CCF:804C or 1CCF:8040.");
@@ -983,10 +1004,15 @@ namespace overlay::windows {
         }
         ImGui::BeginDisabled(!enabled);
         if (ImGui::Button(state.started ? "Reconnect I/O" : "Connect I/O")) {
-            bio2::configure_tape_routes(options.at(launcher::Options::IIDXBI2XTapeMap).value_text());
-            bio2::start(options.at(launcher::Options::IIDXBI2XPort).value_text(),
-                options.at(launcher::Options::IIDXBI2XModules).value_text(),
-                options.at(launcher::Options::IIDXBI2XSkipReset).value_bool(), board);
+            if (sdvx) {
+                bio2::start(port.value_text(), "", board == bio2::Board::SDVX_KFCA, board);
+            } else {
+                bio2::configure_tape_routes(
+                    options.at(launcher::Options::IIDXBI2XTapeMap).value_text());
+                bio2::start(port.value_text(),
+                    options.at(launcher::Options::IIDXBI2XModules).value_text(),
+                    options.at(launcher::Options::IIDXBI2XSkipReset).value_bool(), board);
+            }
         }
         ImGui::EndDisabled();
         if (!enabled) {
@@ -995,6 +1021,10 @@ namespace overlay::windows {
         }
         if (!state.online && !state.message.empty()) {
             ImGui::TextWrapped("%s", state.message.c_str());
+        }
+        if (sdvx) {
+            ImGui::Separator();
+            return;
         }
         if (enabled && options.at(launcher::Options::EnableDevicePassthrough).value_bool()) {
             ImGui::TextWrapped("Disable Device Passthrough for the game's FM serial or EZUSB I/O.");
@@ -1027,8 +1057,8 @@ namespace overlay::windows {
         ImGui::Separator();
     }
 
-    static void set_bio2_binding(Button &button, uint16_t channel) {
-        button.setDeviceIdentifier(bio2::DEVICE_ID);
+    static void set_bio2_binding(Button &button, uint16_t channel, bio2::Board board) {
+        button.setDeviceIdentifier(bio2::device_id(board));
         button.setVKey(channel);
         button.setAnalogType(BAT_NONE);
         button.setDebounceUp(0.0);
@@ -1045,7 +1075,7 @@ namespace overlay::windows {
         ImGui::TextWrapped("Connect a BIO2 board, then click Bind and press a cabinet button.");
         auto &buttons = *games::get_buttons(this->games_selected_name);
         const auto &game = games_list[games_selected];
-        const auto &names = bio2::button_names();
+        const auto &names = bio2::button_names(board);
         if (ImGui::Button("Auto-bind matching inputs")) {
             for (auto &button : buttons) {
                 auto &alternates = button.getAlternatives();
@@ -1053,23 +1083,23 @@ namespace overlay::windows {
                 if (!button.isSet() && std::none_of(alternates.begin(), alternates.end(),
                         [](Button &alt) { return alt.isSet(); }) && found != names.end()
                         && bio2::button_available(board, found - names.begin())) {
-                    set_bio2_binding(button, static_cast<uint16_t>(found - names.begin()));
+                    set_bio2_binding(button, static_cast<uint16_t>(found - names.begin()), board);
                     ::Config::getInstance().updateBinding(game, button, -1);
                 }
             }
             auto &analogs = *games::get_analogs(this->games_selected_name);
-            for (size_t i = 0; i < bio2::analog_names().size() && i < analogs.size(); i++) {
+            for (size_t i = 0; i < bio2::analog_names(board).size() && i < analogs.size(); i++) {
                 if (!analogs[i].isSet() && bio2::analog_available(board, i)) {
-                    analogs[i].setDeviceIdentifier(bio2::DEVICE_ID);
+                    analogs[i].setDeviceIdentifier(bio2::device_id(board));
                     analogs[i].setIndex(static_cast<uint16_t>(i));
                     ::Config::getInstance().updateBinding(game, analogs[i]);
                 }
             }
         }
         build_buttons("BIO2", &buttons);
-        ImGui::SeparatorText("BIO2 turntables and effect sliders");
+        ImGui::SeparatorText(bio2::is_sdvx(board) ? "BIO2 knobs" : "BIO2 turntables and effect sliders");
         auto &analogs = *games::get_analogs(this->games_selected_name);
-        const auto &analog_names = bio2::analog_names();
+        const auto &analog_names = bio2::analog_names(board);
         for (size_t i = 0; i < analog_names.size() && i < analogs.size(); i++) {
             auto &analog = analogs[i];
             int channel = bio2::is_device(analog.getDeviceIdentifier())
@@ -1080,7 +1110,7 @@ namespace overlay::windows {
                     board, bio2::analog_available)) {
                 analog.clearBindings();
                 if (channel >= 0) {
-                    analog.setDeviceIdentifier(bio2::DEVICE_ID);
+                    analog.setDeviceIdentifier(bio2::device_id(board));
                     analog.setIndex(static_cast<uint16_t>(channel));
                 }
                 ::Config::getInstance().updateBinding(game, analog);
@@ -1091,33 +1121,36 @@ namespace overlay::windows {
                 ::Config::getInstance().updateBinding(game, analog);
             }
             ImGui::SameLine();
-            ImGui::Text("Position: %.3f", channel >= 0 ? bio2::read_analog(channel) : 0.f);
+            ImGui::Text("Position: %.3f",
+                channel >= 0 ? bio2::read_analog(channel, bio2::device_id(board)) : 0.f);
             ImGui::PopID();
         }
     }
 
     void Config::build_bio2_lights() {
         const auto board = bio2_config_board(this->games_selected_name);
+        const auto *device = bio2::device_id(board);
+        const bool online = bio2::status(device).online;
         ImGui::Text("BIO2 Lights - %s", bio2::board_name(board));
         ImGui::TextWrapped("Route each game light to a BIO2 output. "
             "RGB channels can be mapped separately. Hold Test to preview an output.");
         auto &lights = *games::get_lights(this->games_selected_name);
         const auto &game = games_list[games_selected];
-        const auto &names = bio2::light_names();
+        const auto &names = bio2::light_names(board);
         auto bind = [&](Light &light, int channel) {
             if (bio2::is_device(light.getDeviceIdentifier())) {
-                bio2::write_light(light.getIndex(), 0.f);
+                bio2::write_light(light.getIndex(), 0.f, light.getDeviceIdentifier());
             }
             for (int i = static_cast<int>(light.getAlternatives().size()) - 1; i >= 0; i--) {
                 const auto &alt = light.getAlternatives()[i];
                 if (bio2::is_device(alt.getDeviceIdentifier())) {
-                    bio2::write_light(alt.getIndex(), 0.f);
+                    bio2::write_light(alt.getIndex(), 0.f, alt.getDeviceIdentifier());
                 }
                 ::Config::getInstance().updateBinding(game, Light(light.getName()), i);
             }
             light = Light(light.getName(), light.getCategory());
             if (channel >= 0) {
-                light.setDeviceIdentifier(bio2::DEVICE_ID);
+                light.setDeviceIdentifier(bio2::device_id(board));
                 light.setIndex(static_cast<unsigned int>(channel));
             }
             ::Config::getInstance().updateBinding(game, light, -1);
@@ -1151,7 +1184,7 @@ namespace overlay::windows {
                     bind(light, channel);
                 }
                 ImGui::TableNextColumn();
-                ImGui::BeginDisabled(channel < 0 || !bio2::status().online
+                ImGui::BeginDisabled(channel < 0 || !online
                     || !bio2::light_available(board, channel));
                 ImGui::Button("Test");
                 if (ImGui::IsItemActive()) {
@@ -1159,12 +1192,12 @@ namespace overlay::windows {
                 }
                 ImGui::EndDisabled();
                 ImGui::SameLine();
-                ImGui::Text("%.2f", channel >= 0 ? bio2::read_light(channel) : 0.f);
+                ImGui::Text("%.2f", channel >= 0 ? bio2::read_light(channel, device) : 0.f);
                 ImGui::PopID();
             }
             ImGui::EndTable();
         }
-        bio2::test_light(tested);
+        bio2::test_light(tested, device);
         if (board == bio2::Board::BI2X && ImGui::CollapsingHeader("Full RGB tape routing")) {
             auto &option = games::get_options(this->games_selected_name)->at(
                 launcher::Options::IIDXBI2XTapeMap);
@@ -1426,7 +1459,8 @@ namespace overlay::windows {
             }
 
             if (bio2_only) {
-                bio2_buttons_held_on_bind = bio2::pressed_buttons();
+                const auto board = bio2_config_board(this->games_selected_name);
+                bio2_buttons_held_on_bind = bio2::pressed_buttons(bio2::device_id(board));
             }
 
             // midi freeze
@@ -1702,6 +1736,8 @@ namespace overlay::windows {
     void Config::bind_button_popup(
         const std::string &bind_name, Button *button, int button_it_max, int alt_index,
         bool bio2_only) {
+        const auto board = bio2_only ? bio2_config_board(this->games_selected_name) : bio2::Board::BI2X;
+        const auto *device = bio2::device_id(board);
 
         if (ImGui::BeginPopupModal(bind_name.c_str(), NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
 
@@ -1712,7 +1748,7 @@ namespace overlay::windows {
             ImGui::TextColored(ImVec4(1, 0.7f, 0, 1), "Press ESC to cancel!");
             ImGui::TextUnformatted("");
             if (bio2_only) {
-                if (!bio2::status().online) {
+                if (!bio2::status(device).online) {
                     ImGui::TextUnformatted("BIO2 is offline. Connect the board to bind an input.");
                 }
             } else {
@@ -1742,12 +1778,12 @@ namespace overlay::windows {
                 }
             }
             if (check_devices && bio2_only) {
-                const uint32_t pressed = bio2::pressed_buttons();
+                const uint32_t pressed = bio2::pressed_buttons(device);
                 bio2_buttons_held_on_bind &= pressed;
                 const uint32_t new_presses = pressed & ~bio2_buttons_held_on_bind;
                 for (uint16_t channel = 0; channel < bio2::BUTTON_COUNT; ++channel) {
                     if ((new_presses & (uint32_t{1} << channel)) != 0) {
-                        set_bio2_binding(*button, channel);
+                        set_bio2_binding(*button, channel, board);
                         ::Config::getInstance().updateBinding(
                             games_list[games_selected], *button, alt_index - 1);
                         RI_MGR->devices_midi_freeze(false);
@@ -2400,13 +2436,14 @@ namespace overlay::windows {
             ImGui::Separator();
 
             // combo for devices
-            const bool iidx = this->games_selected_name == "Beatmania IIDX";
+            const bool supports_bio2 = this->games_selected_name == "Beatmania IIDX" ||
+                this->games_selected_name == "Sound Voltex";
             const bool native = bio2::is_device(button->getDeviceIdentifier());
             std::string device_desc = native ? "BIO2" :
                 (device != nullptr ? device->desc : "Empty (Naive)");
             if (ImGui::BeginCombo("Device Identifier", device_desc.c_str())) {
-                if (iidx && ImGui::Selectable("BIO2", native) && !native) {
-                    switch_device(bio2::DEVICE_ID);
+                if (supports_bio2 && ImGui::Selectable("BIO2", native) && !native) {
+                    switch_device(bio2::device_id(bio2_config_board(this->games_selected_name)));
                 }
                 if (ImGui::Selectable("Empty (Naive)", button->isNaive()) && !button->isNaive()) {
                     switch_device("");
@@ -2431,7 +2468,7 @@ namespace overlay::windows {
             if (bio2::is_device(button->getDeviceIdentifier())) {
                 int channel = button->getVKey();
                 const auto board = bio2_config_board(this->games_selected_name);
-                if (bio2_channel_combo("BIO2 input", &channel, bio2::button_names(), false,
+                if (bio2_channel_combo("BIO2 input", &channel, bio2::button_names(board), false,
                         board, bio2::button_available)) {
                     button->setVKey(static_cast<uint16_t>(channel));
                     dirty = true;

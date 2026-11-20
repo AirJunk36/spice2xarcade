@@ -2,6 +2,8 @@
 
 #include <external/robin_hood.h>
 
+#include "bio2/device.h"
+
 #include "games/shared/lcdhandle.h"
 #include "games/io.h"
 #include "hooks/audio/audio.h"
@@ -396,8 +398,20 @@ namespace games::sdvx {
         this->detect_sound_output_device();
 #endif
 
-        // SOCD
         auto options = games::get_options(eamuse_get_game());
+        if (options->at(launcher::Options::SDVXNativeIO).value_bool()) {
+            bio2::Board board;
+            if (bio2::parse_sdvx_board(
+                    options->at(launcher::Options::SDVXNativeBoard).value_text(), board)) {
+                log_info("sdvx", "Starting native {} hardware", bio2::board_name(board));
+                bio2::start(options->at(launcher::Options::SDVXNativePort).value_text(), "",
+                    board == bio2::Board::SDVX_KFCA, board);
+            } else {
+                log_warning("sdvx", "Invalid sdvxioboard selection; choose bi2a or kfca");
+            }
+        }
+
+        // SOCD
         socd::ALGORITHM = socd::SocdAlgorithm::PreferRecent;
         if (options->at(launcher::Options::SDVXDigitalKnobSocd).is_active()) {
             if (options->at(launcher::Options::SDVXDigitalKnobSocd).value_text() == "neutral") {
@@ -624,6 +638,7 @@ namespace games::sdvx {
     }
 
     void SDVXGame::detach() {
+        bio2::stop();
         Game::detach();
 
         devicehook_dispose();

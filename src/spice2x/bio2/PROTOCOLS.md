@@ -1,6 +1,6 @@
 # Protocol references
 
-The BI2A/IO2 packet layouts and initialization behavior are based on public
+The BI2A, IO2 and KFCA packet layouts and initialization behavior are based on public
 Unlicense sources from `djhackersdev/bemanitools`, pinned at
 `5ae0b175170d9ae657b7634ca514b7848923401e`:
 
@@ -9,6 +9,9 @@ Unlicense sources from `djhackersdev/bemanitools`, pinned at
 - `src/main/ezusb2-iidx/msg.h` and `src/main/iidxio-ezusb2/iidxio.c`
 - `src/main/ezusb2/ezusb2.h` and `ezusb2.c`
 - `doc/iidxhook/iidxio-ezusb2.md`
+- `src/main/bio2/bi2a-sdvx.h` and `src/main/bio2drv/bi2a-sdvx.c`
+- `src/main/acio/kfca.h` and `src/main/aciodrv/kfca.c`
+- `src/main/sdvxio-bio2/sdvxio.c` and `src/main/sdvxio-kfca/sdvxio.c`
 
 Source: https://github.com/djhackersdev/bemanitools/tree/5ae0b175170d9ae657b7634ca514b7848923401e
 
@@ -22,6 +25,7 @@ validation, cancellation, cached inputs, remapping and reconnection. No
 Bemanitools DLL, kernel driver, game data or proprietary firmware is bundled.
 BI2A persistent firmware and IO2 volatile firmware must be prepared by the user.
 
-The legacy subscreen uses Spice2x's existing Ticker state and DSEG font resource.
-It is an independent implementation, not a port of `iidx_btools_subscreen`.
-DSEG retains the existing SIL Open Font License in `external/dseg/DSEG-LICENSE.txt`.
+The IIDX legacy subscreen bridge loads the original
+[`iidx_btools_subscreen`](https://github.com/cloud11665/iidx_btools_subscreen)
+backend, supplied separately. The bridge connects its VEFX and keypad callbacks
+to Spice game I/O. The original backend renders the UI and handles touch.

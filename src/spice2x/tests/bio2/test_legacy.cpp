@@ -98,12 +98,47 @@ static void contract() {
     }
 }
 
+static void test_sdvx(bio2::Board board, const char *port) {
+    const auto *device = bio2::device_id(board);
+    const auto *iidx = bio2::device_id(bio2::Board::BI2X);
+    check(bio2::start(port, "", true, board), "start SDVX board");
+    check(wait_for([&] { return bio2::status(device).online; }, 5000), "SDVX board online");
+    const auto pressed = 0x0fu | (1u << 5) | (1u << 7) | (1u << 9) | (1u << 10);
+    check(bio2::pressed_buttons(device) ==
+        (pressed | (board == bio2::Board::SDVX_BI2A ? (1u << 8) : 0u)), "SDVX physical inputs");
+    check(!bio2::read_button(4, false, device) && bio2::read_button(5, false, device),
+        "SDVX key channels support rebinding");
+    check(!bio2::status(iidx).online && !bio2::pressed_buttons(iidx)
+        && !bio2::read_button(5, false, iidx), "IIDX binding cannot capture SDVX input");
+    check(bio2::read_analog(0, device) == 257 / 1023.f
+        && bio2::read_analog(1, device) == 1.f && bio2::read_analog(1, iidx) == 0.f,
+        "SDVX knob state and device isolation");
+    bio2::write_light(0, 1.f, device);
+    bio2::write_light(7, 1.f, device);
+    bio2::write_light(26, 0.5f, device);
+    bio2::write_light(27, 1.f, device);
+    bio2::write_light(1, 1.f, iidx);
+    check(bio2::read_light(1, device) == 0.f, "foreign game output ignored");
+    bio2::test_light(1, device);
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    bio2::test_light(-1, device);
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    bio2::stop();
+    check(!bio2::status(device).started, "SDVX clean shutdown");
+}
+
 int main(int argc, char **argv) {
     contract();
     if (argc != 3) {
         return 0;
     }
     bio2::Board board;
+    const std::string_view kind = argv[1];
+    if (kind.starts_with("sdvx-")) {
+        check(bio2::parse_sdvx_board(kind.substr(5), board), "valid SDVX test board");
+        test_sdvx(board, argv[2]);
+        return 0;
+    }
     check(bio2::parse_board(argv[1], board), "valid test board");
     check(bio2::start(argv[2], "", true, board), "start legacy backend");
     check(wait_for([] { return bio2::status().online; }, 5000), "legacy board online");

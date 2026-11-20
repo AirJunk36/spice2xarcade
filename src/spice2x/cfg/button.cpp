@@ -302,9 +302,11 @@ std::string Button::getMidiNoteString() {
 
 std::string Button::getDisplayString(rawinput::RawInputManager *manager) {
     if (bio2::is_device(this->getDeviceIdentifier())) {
+        const auto board = this->getDeviceIdentifier() == bio2::SDVX_DEVICE_ID
+            ? bio2::Board::SDVX_BI2A : bio2::Board::BI2X;
         const auto index = this->getVKey();
-        return index < bio2::button_names().size()
-            ? "BIO2 / " + bio2::button_names()[index] : "Invalid BIO2 input";
+        return index < bio2::button_names(board).size()
+            ? "BIO2 / " + bio2::button_names(board)[index] : "Invalid BIO2 input";
     }
     auto binding_display = this->getBindingDisplayString(manager);
     auto modifiers = this->getModifierMask();
