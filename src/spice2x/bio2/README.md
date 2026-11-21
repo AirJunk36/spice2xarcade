@@ -198,7 +198,9 @@ with automatic application. This supplements the existing patch list. The
 card server must also support the corresponding card type.
 
 ## Optional ASIO for IIDX 18–26
-Enable **IIDX Force ASIO** in the Game Options or pass `-iidxforceasio`.
+Select **Beatmania IIDX** in SpiceCfg or in the in-game configuration overlay.
+Open **Options → Quick Settings → Game**, enable **IIDX Force ASIO**, and
+restart the game. The equivalent launch flag is `-iidxforceasio`.
 Spice prefers the Xonar driver registered for the executable's bitness.
 To select another driver, use **IIDX ASIO Driver**. A driver selected in the
 existing **WASAPI Exclusive to ASIO Conversion** option takes precedence.

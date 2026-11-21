@@ -733,13 +733,12 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::IIDXForceAsio] = {
         .title = "IIDX Force ASIO",
         .name = "iidxforceasio",
-        .desc = "Route IIDX 18–26 WASAPI audio to an ASIO driver using Spice. "
-            "Prefers Xonar AE. Select IIDX ASIO Driver to choose another device. "
-            "Supports exclusive and event-driven shared streams.",
+        .desc = "Route IIDX 18-26 audio through ASIO. Prefers Xonar AE. "
+            "Use IIDX ASIO Driver to choose another device. Takes effect on the next launch.",
         .type = OptionType::Bool,
         .game_name = "Beatmania IIDX",
         .category = "Game Options",
-        .quick_setting_category = "Audio",
+        .quick_setting_category = "Game",
     };
     c[launcher::Options::IIDXBI2XNative] = {
         .title = "Native IIDX I/O Hardware",
