@@ -29,4 +29,5 @@ The built-in IIDX subscreen uses window, touch and ticker code adapted from
 [`iidx_btools_subscreen`](https://github.com/cloud11665/iidx_btools_subscreen/tree/300916a7b481be8ff204570fd1e695e6ea36a35c).
 It uses Spice game I/O, the existing DX11 renderer and original Ticker segment
 geometry. Widgets use Spice's bundled ImGui controls and font. Both its MIT
-notice and the LED-Segment-ASCII MIT notice are in `licenses.txt`.
+notice and the LED-Segment-ASCII MIT notice are in `licenses.txt`. The optional
+standalone DLL can also be discovered at startup and run as a separate module.

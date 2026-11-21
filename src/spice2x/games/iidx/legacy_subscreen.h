@@ -15,7 +15,7 @@ namespace games::iidx {
     bool run_builtin_legacy_subscreen(HWND main, const RECT &rect, const std::atomic_bool &stopping,
         std::array<std::atomic<uint16_t>, 2> &keypads, std::array<std::atomic<int>, 5> &sliders);
 #endif
-    bool legacy_subscreen_start(const std::string &monitor);
+    bool legacy_subscreen_start(const std::string &monitor, bool start_builtin, bool detect_backend);
     std::array<char, 10> legacy_subscreen_ticker();
     void legacy_subscreen_stop();
     bool is_legacy_subscreen_window(HWND window);

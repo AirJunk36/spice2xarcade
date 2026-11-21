@@ -804,7 +804,7 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
     c[launcher::Options::IIDXNoAutoLegacySubscreen] = {
         .title = "Disable Automatic IIDX Legacy Subscreen",
         .name = "iidxnoautolegacysub",
-        .desc = "Turn off automatic legacy subscreen startup with native BI2X "
+        .desc = "Turn off automatic startup from a nearby backend DLL or from native BI2X "
             "for IIDX 25-26 or in non-TDJ mode.",
         .type = OptionType::Bool,
         .game_name = "Beatmania IIDX",

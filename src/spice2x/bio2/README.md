@@ -143,6 +143,16 @@ startup, or `-iidxlegacysub` to request it explicitly. Set
 `-iidxlegacymonitor \\.\DISPLAY2` to choose the secondary display.
 Spice keeps the subscreen above other windows without taking game focus.
 
+Spice also checks the game working directory for a standalone
+[iidx_btools_subscreen](https://github.com/cloud11665/iidx_btools_subscreen)
+DLL at launch. It tries `backend32.dll` with `spice.exe` or `backend64.dll`
+with `spice64.exe`, then `backend.dll` if the first file is missing or fails
+to load. The DLL must match the launcher's bitness. Finding a candidate can
+start the subscreen even without native BI2X. If the original cannot start,
+Spice opens the built-in screen. `-iidxnoautolegacysub` also disables this
+automatic startup. `-iidxlegacysub` still requests startup explicitly.
+The original DLL is supplied separately.
+
 The built-in screen offers touch keypads for both players, the Ticker, five
 effect faders, Concentration Mode, card insertion, settings and coin insertion.
 Display changes cause the screen to reopen on the selected display.
