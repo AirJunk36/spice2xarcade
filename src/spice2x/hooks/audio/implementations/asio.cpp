@@ -269,6 +269,8 @@ bool AsioBackend::load_driver() {
         } else {
             this->asio_driver = driver;
             this->asio_driver->AddRef();
+            this->legacy_iidx_xonar = hooks::audio::ASIO_IIDX_32BIT &&
+                _stricmp(driver_name.c_str(), "XONAR SOUND CARD") == 0;
         }
     }
 
@@ -832,8 +834,12 @@ HRESULT AsioBackend::on_initialize(
         // clients refill it using GetCurrentPadding and do not register an event.
         const auto requested = std::clamp<REFERENCE_TIME>(*hnsBufferDuration, 0, 2000000);
         const bool event_callback = (*StreamFlags & AUDCLNT_STREAMFLAGS_EVENTCALLBACK) != 0;
-        const auto duration = !event_callback && hooks::audio::ASIO_LEGACY_IIDX_XONAR_POLLING
+        const bool legacy_polling = !event_callback && this->legacy_iidx_xonar;
+        const auto duration = legacy_polling
             ? std::max(requested, LEGACY_IIDX_POLLING_BUFFER) : requested;
+        if (legacy_polling) {
+            log_info("audio::asio", "32-bit IIDX Xonar polling: software buffer minimum is 40 ms");
+        }
         const auto queue_frames = static_cast<uint32_t>(
             std::ceil(static_cast<double>(duration) * sample_rate / REFTIMES_PER_SEC));
         const auto period = static_cast<uint32_t>(this->asio_info_.buffer_preferred_size);
@@ -979,15 +985,15 @@ HRESULT AsioBackend::on_get_device_period(
     REFERENCE_TIME *minimum_device_period) noexcept
 {
     auto ref_time = this->compute_ref_time();
+    // 32-bit IIDX uses the default Windows mixer period to size its polling stream.
+    const auto mixer_period = this->legacy_iidx_xonar
+        ? std::max(ref_time, LEGACY_IIDX_DEFAULT_PERIOD) : ref_time;
 
-    log_info("audio::asio", "AsioBackend::on_get_device_period: sample rate = {}, reference time = {}",
-            this->last_checked_format.Format.nSamplesPerSec,
-            ref_time);
+    log_info("audio::asio", "Device periods at {} Hz: mixer {} ms, driver {} ms",
+        this->last_checked_format.Format.nSamplesPerSec, mixer_period / 10000.0, ref_time / 10000.0);
 
     if (default_device_period) {
-        // 32-bit IIDX uses the default Windows mixer period to size its polling stream.
-        *default_device_period = hooks::audio::ASIO_LEGACY_IIDX_XONAR_POLLING
-            ? std::max(ref_time, LEGACY_IIDX_DEFAULT_PERIOD) : ref_time;
+        *default_device_period = mixer_period;
     }
     if (minimum_device_period) {
         *minimum_device_period = ref_time;
@@ -1051,6 +1057,8 @@ HRESULT AsioBackend::on_stop() noexcept {
     this->started = false;
     if (const auto underruns = this->underrun_callbacks.exchange(0)) {
         log_warning("audio::asio", "{} output callbacks ran short of game audio", underruns);
+    } else if (this->legacy_iidx_xonar) {
+        log_info("audio::asio", "No output callbacks ran short of game audio");
     }
 
     return S_OK;

@@ -177,8 +177,9 @@ its path. Use `-iidxlegacysub` for explicit startup.
   and the player for each swipe.
 - For crackling with WASAPI Exclusive, try `-exclusivebuffer 10`, then
   `-exclusivebuffer 20` if needed. A larger buffer adds audio latency.
-  Force ASIO on 32-bit IIDX with Xonar now gives shared polling games a
-  minimum 40 ms software queue. The driver keeps its own hardware period.
+  With 32-bit IIDX and Xonar, either `-iidxforceasio` or
+  `-asioconvert "XONAR SOUND CARD"` gives shared polling games a
+  minimum 40 ms software queue. The driver controls its hardware period.
 - To hide only the Spice swipe popup, turn on **General Overlay → Hide Card
   Inserted Notification** (`-hidecardtoast`).
 
@@ -208,8 +209,9 @@ The flag overrides the shared/low-latency WASAPI switches only when a
 matching ASIO driver can be selected. Look for `Forcing IIDX WASAPI audio`
 and `audio::asio` in the startup log. The ASIO driver controls its own buffer
 size. Shared-mode clients such as Tricoro retain their requested mixing
-buffer, with at least two driver periods of headroom. The log records both sizes
-and reports any callback underruns when the stream stops. Hardware playback and
+buffer, with at least two driver periods of headroom. On 32-bit IIDX with
+Xonar, polling clients get a minimum 40 ms software queue. The log records
+both sizes and reports callback underruns when the stream stops. Hardware playback and
 round-trip latency still require cabinet testing.
 
 ## Validation

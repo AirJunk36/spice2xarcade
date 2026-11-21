@@ -945,8 +945,6 @@ namespace games::iidx {
             }
             return;
         }
-        hooks::audio::ASIO_LEGACY_IIDX_XONAR_POLLING = sizeof(void *) == 4 &&
-            _stricmp(selected->name.c_str(), "XONAR SOUND CARD") == 0;
         hooks::audio::ASIO_DRIVER_NAME = selected->name;
         hooks::audio::ASIO_DRIVER_ID.reset();
         hooks::audio::BACKEND = hooks::audio::Backend::Asio;
@@ -1029,6 +1027,7 @@ namespace games::iidx {
         // so no game-DLL signature patch is needed here anymore
 
 #else
+        hooks::audio::ASIO_IIDX_32BIT = true;
         if (force_asio) {
             configure_asio_conversion();
         }

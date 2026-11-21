@@ -53,7 +53,7 @@ namespace hooks::audio {
     extern bool INJECT_FAKE_REALTEK_AUDIO;
     extern std::optional<size_t> ASIO_DRIVER_ID;
     extern std::string ASIO_DRIVER_NAME;
-    extern bool ASIO_LEGACY_IIDX_XONAR_POLLING;
+    extern bool ASIO_IIDX_32BIT;
     extern bool ASIO_FORCE_UNLOAD_ON_STOP;
     extern bool LOW_LATENCY_SHARED_WASAPI;
 
