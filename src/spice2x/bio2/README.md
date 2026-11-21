@@ -143,25 +143,14 @@ startup, or `-iidxlegacysub` to request it explicitly. Set
 `-iidxlegacymonitor \\.\DISPLAY2` to choose the secondary display.
 Spice keeps the subscreen above other windows without taking game focus.
 
-For the original interface, set **Subscreen backend DLL** in SpiceCfg or pass
-`-iidxlegacybackend "C:\path\to\backend64.dll"` with a 64-bit build of
-[iidx_btools_subscreen](https://github.com/cloud11665/iidx_btools_subscreen)
-on IIDX 25 or 26. Use a 32-bit build with `spice.exe`. A recent original build
-includes the Cards, Settings and Coin buttons, both Concentration Mode
-controls, the card list and touch effects. Spice supplies the game I/O to the
-original interface instead of using its BemaniTools DLLs. The original project
-lists IIDX 12–24. The Spice bridge extends its intended range to IIDX 18–26.
-
-If the configured DLL has the wrong bitness, Spice checks the same directory
-for `backend64.dll` or `backend32.dll` matching the launcher. If the original
-cannot start, the built-in screen can read the configured DLL as artwork
-regardless of bitness. To go directly to the built-in screen with original
-artwork, clear **Subscreen backend DLL** and put the original `backend.dll`
-in the game directory. The built-in screen offers the keypads, Ticker, five
-faders, Concentration Mode, Spice card insertion, settings and coin insertion.
-Display changes cause the built-in screen to reopen on the selected display.
+The built-in screen offers touch keypads for both players, the Ticker, five
+effect faders, Concentration Mode, card insertion, settings and coin insertion.
+Display changes cause the screen to reopen on the selected display.
 Screen faders take over from the hardware individually when touched. The
 IIDX IO Panel remains available through its own overlay toggle.
+
+Existing launch scripts may still contain `-iidxlegacybackend`; Spice ignores
+its path. Use `-iidxlegacysub` for explicit startup.
 
 ## IIDX 26 cabinet troubleshooting
 

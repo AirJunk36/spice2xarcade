@@ -819,15 +819,15 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
         .category = "Game Options",
         .picker = OptionPickerType::Monitor,
     };
-    c[launcher::Options::IIDXLegacyBackend] = {
-        .title = "IIDX Legacy Subscreen Backend",
+    // Consume old launch-script paths so they are not interpreted as the game executable.
+    c[launcher::Options::RemovedIIDXLegacyBackend] = {
+        .title = "IIDX Legacy Subscreen Backend (Removed)",
         .name = "iidxlegacybackend",
-        .desc = "Optional iidx_btools_subscreen DLL. A matching-bit DLL runs the original UI. "
-            "The built-in renderer can read artwork from either bitness; empty looks for backend.dll.",
+        .desc = "Deprecated. The cabinet subscreen is built into Spice.",
         .type = OptionType::Text,
+        .hidden = true,
         .game_name = "Beatmania IIDX",
         .category = "Game Options",
-        .picker = OptionPickerType::FilePath,
     };
     c[launcher::Options::IIDXBIO2FW] = {
         .title = "IIDX BIO2 Firmware Update",

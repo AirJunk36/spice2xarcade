@@ -10,7 +10,6 @@
 #ifndef SPICE_XP
 #include <algorithm>
 #include <chrono>
-#include <optional>
 #include <d3d11.h>
 
 #include "backends/imgui_impl_dx11.h"
@@ -18,7 +17,6 @@
 #include "overlay/overlay.h"
 #include "util/libutils.h"
 #include "util/logging.h"
-#include "legacy_subscreen_artwork.h"
 #include "legacy_subscreen_ticker_draw.h"
 
 namespace games::iidx {
@@ -99,7 +97,6 @@ namespace games::iidx {
             bool concentration = false;
             bool card_view = false;
             bool settings_view = false;
-            std::optional<legacy_subscreen::Artwork> artwork;
             std::array<bool, 2> show_keypad {};
             std::array<int, 5> values {7, 7, 7, 15, 15};
             UINT32 active_contact = 0;
@@ -220,7 +217,7 @@ namespace games::iidx {
                 return window != nullptr;
             }
 
-            bool create_renderer(const std::filesystem::path &artwork_path) {
+            bool create_renderer() {
                 dx11 = LoadLibraryW(L"d3d11.dll");
                 const auto create = libutils::try_proc<decltype(&D3D11CreateDeviceAndSwapChain)>(
                     dx11, "D3D11CreateDeviceAndSwapChain");
@@ -269,21 +266,10 @@ namespace games::iidx {
                 ImGui::GetIO().LogFilename = nullptr;
                 ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_IsTouchScreen;
                 ImGui::StyleColorsDark();
-                if (!artwork_path.empty()) {
-                    artwork.emplace();
-                    if (artwork->load(artwork_path, device)) {
-                        artwork->load_font();
-                        log_info("iidx::subscreen", "Loaded original artwork from {}", artwork_path);
-                    } else {
-                        artwork.reset();
-                        log_warning("iidx::subscreen", "Could not read original artwork from {}", artwork_path);
-                    }
-                }
                 renderer_started = ImGui_ImplDX11_Init(device, device_context);
                 return renderer_started && ImGui_ImplDX11_CreateDeviceObjects();
             }
 
-            using Art = legacy_subscreen::Artwork;
             static constexpr auto fixed = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize
                 | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings;
 
@@ -293,35 +279,9 @@ namespace games::iidx {
                 ImGui::Begin(id, nullptr, fixed | flags);
             }
 
-            bool icon(const char *label, Art::Image image, ImVec2 position, ImVec2 size,
-                    ImU32 tint = IM_COL32_WHITE) {
+            bool button_at(const char *label, ImVec2 position, ImVec2 size) {
                 ImGui::SetCursorPos(position);
-                if (!artwork || !(*artwork)[image].view) {
-                    return ImGui::Button(label, size);
-                }
-                const auto cursor = ImGui::GetCursorScreenPos();
-                const auto clicked = ImGui::InvisibleButton(label, size);
-                (*artwork)[image].draw(ImGui::GetWindowDrawList(), cursor, size, tint);
-                return clicked;
-            }
-
-            void concentration_button(size_t player, float x, float s) {
-                ImGui::PushID(static_cast<int>(player));
-                const auto image = concentration ? Art::ConcentrationOn : Art::ConcentrationOff;
-                if (icon("Concentrate", image, {x * s, 8 * s}, {100 * s, 80 * s})) {
-                    concentration = !concentration;
-                }
-                if (artwork) {
-                    ImGui::PushFont(nullptr, 12 * s);
-                    ImGui::SetCursorPos({(x + 19) * s, 8 * s});
-                    ImGui::Text("PLAYER %02u", static_cast<unsigned>(player + 1));
-                    ImGui::SetCursorPos({(x + 8) * s, 69 * s});
-                    ImGui::TextUnformatted("concentration");
-                    ImGui::SetCursorPos({(x + 33) * s, 82 * s});
-                    ImGui::TextUnformatted("mode");
-                    ImGui::PopFont();
-                }
-                ImGui::PopID();
+                return ImGui::Button(label, size);
             }
 
             void draw_keypad(size_t player, float x, float y, float s) {
@@ -332,11 +292,7 @@ namespace games::iidx {
                 panel(player == 0 ? "P1 Keypad" : "P2 Keypad", {x, y}, {424 * s, 450 * s},
                     ImGuiWindowFlags_NoBackground);
                 const float keypad_x = player == 0 ? 0.0f : 96.0f;
-                if (artwork) {
-                    (*artwork)[Art::Keypad].draw(ImGui::GetWindowDrawList(),
-                        {x + keypad_x * s, y}, {325 * s, 443 * s});
-                }
-                if (icon("Close", Art::KeypadClose, {(player == 0 ? 325.0f : 0.0f) * s, 347 * s},
+                if (button_at("Close", {(player == 0 ? 325.0f : 0.0f) * s, 347 * s},
                         {95 * s, 95 * s})) {
                     show_keypad[player] = false;
                 }
@@ -347,17 +303,8 @@ namespace games::iidx {
                 uint16_t pressed = 0;
                 for (size_t key = 0; key < std::size(labels); ++key) {
                     ImGui::SetCursorPos({(keypad_x + 24 + 98 * (key % 3)) * s, (24 + 98 * (key / 3)) * s});
-                    const auto pos = ImGui::GetCursorScreenPos();
                     const ImVec2 size {(key == 10 ? 179.0f : 81.0f) * s, 81 * s};
-                    if (artwork) {
-                        ImGui::InvisibleButton(labels[key], size);
-                        if (ImGui::IsItemActive()) {
-                            ImGui::GetWindowDrawList()->AddRectFilled(pos, {pos.x + size.x, pos.y + size.y},
-                                IM_COL32(255, 255, 255, 100), 2 * s);
-                        }
-                    } else {
-                        ImGui::Button(labels[key], size);
-                    }
+                    ImGui::Button(labels[key], size);
                     if (ImGui::IsItemActive()) {
                         pressed |= 1u << codes[key];
                     }
@@ -380,24 +327,7 @@ namespace games::iidx {
                     ImGui::SetCursorPos({center * s - ImGui::CalcTextSize(descriptions[i]).x * 0.5f, 33 * s});
                     ImGui::TextUnformatted(descriptions[i]);
                     ImGui::SetCursorPos({(center - 72) * s, 119 * s});
-                    if (artwork) {
-                        const auto pos = ImGui::GetCursorScreenPos();
-                        const float height = 421.5f * s;
-                        const float width = 144 * s;
-                        auto *list = ImGui::GetWindowDrawList();
-                        (*artwork)[Art::TrackBackground].draw(list, {pos.x - 27 * s, pos.y - 70.5f * s},
-                            {198 * s, 564 * s});
-                        (*artwork)[i < 3 ? Art::TrackZero : Art::TrackOne].draw(
-                            list, {pos.x - 42 * s, pos.y - 30 * s}, {228 * s, 483 * s});
-                        ImGui::InvisibleButton("Fader", {width, height});
-                        if (ImGui::IsItemActive()) {
-                            const auto t = std::clamp((ImGui::GetIO().MousePos.y - pos.y) / height, 0.f, 1.f);
-                            values[i] = static_cast<int>(15.f * (1.f - t));
-                            sliders[i] = values[i];
-                        }
-                        const float knob_y = pos.y + (1.f - values[i] / 15.f) * height - 28.5f * s;
-                        (*artwork)[Art::TrackHead].draw(list, {pos.x, knob_y}, {width, 57 * s});
-                    } else if (ImGui::VSliderInt("Fader", {144 * s, 421.5f * s}, &values[i], 0, 15, "%d")
+                    if (ImGui::VSliderInt("##Fader", {144 * s, 421.5f * s}, &values[i], 0, 15, "%d")
                             || ImGui::IsItemActivated()) {
                         sliders[i] = values[i];
                     }
@@ -413,24 +343,26 @@ namespace games::iidx {
                 const float y = (io.DisplaySize.y - 1080 * s) / 2;
                 ImGui::PushFont(nullptr, 20 * s);
                 panel("Navigation", {x, y}, {1920 * s, 100 * s});
-                const auto tint = [&](size_t player) {
-                    return show_keypad[player] && !concentration ? IM_COL32_WHITE : IM_COL32(128, 128, 128, 255);
-                };
-                if (icon("P1 Keypad", Art::KeypadIcon, {12 * s, 8 * s}, {65 * s, 82 * s}, tint(0))) {
+                if (button_at("P1 Keypad", {12 * s, 8 * s}, {122 * s, 82 * s})) {
                     show_keypad[0] = !show_keypad[0];
                 }
-                if (icon("P2 Keypad", Art::KeypadIcon, {1843 * s, 8 * s}, {65 * s, 82 * s}, tint(1))) {
+                if (button_at("P2 Keypad", {1786 * s, 8 * s}, {122 * s, 82 * s})) {
                     show_keypad[1] = !show_keypad[1];
                 }
-                concentration_button(0, 94, s);
-                concentration_button(1, 1726, s);
-                if (icon("Cards", Art::Card, {814 * s, 8 * s}, {82 * s, 82 * s})) {
+                const auto concentrate_p1 =
+                    button_at("Concentrate##P1", {146 * s, 8 * s}, {130 * s, 82 * s});
+                const auto concentrate_p2 =
+                    button_at("Concentrate##P2", {1644 * s, 8 * s}, {130 * s, 82 * s});
+                if (concentrate_p1 || concentrate_p2) {
+                    concentration = !concentration;
+                }
+                if (button_at("Cards", {804 * s, 8 * s}, {92 * s, 82 * s})) {
                     card_view = !card_view;
                 }
-                if (icon("Settings", Art::Settings, {919 * s, 8 * s}, {82 * s, 82 * s})) {
+                if (button_at("Settings", {914 * s, 8 * s}, {92 * s, 82 * s})) {
                     settings_view = !settings_view;
                 }
-                if (icon("Coin", Art::Coin, {1024 * s, 8 * s}, {82 * s, 82 * s})) {
+                if (button_at("Coin", {1024 * s, 8 * s}, {92 * s, 82 * s})) {
                     eamuse_coin_insert();
                 }
                 ImGui::End();
@@ -500,7 +432,6 @@ namespace games::iidx {
                     ImGui::DestroyContext(context);
                     spice_imgui_context_slot = original_slot;
                 }
-                artwork.reset();
                 if (target) { target->Release(); }
                 if (swap) { swap->Release(); }
                 if (device_context) { device_context->Release(); }
@@ -512,9 +443,8 @@ namespace games::iidx {
                 }
             }
 
-            bool run(HWND main, const RECT &rect, const std::filesystem::path &artwork_path,
-                    const std::atomic_bool &stopping) {
-                if (!create_window(rect) || !create_renderer(artwork_path)) {
+            bool run(HWND main, const RECT &rect, const std::atomic_bool &stopping) {
+                if (!create_window(rect) || !create_renderer()) {
                     log_warning("iidx::subscreen", "Could not open the built-in D3D11 subscreen");
                     return false;
                 }
@@ -583,11 +513,10 @@ namespace games::iidx {
         };
     }
 
-    bool run_builtin_legacy_subscreen(HWND main, const RECT &rect,
-        const std::filesystem::path &artwork, const std::atomic_bool &stopping,
+    bool run_builtin_legacy_subscreen(HWND main, const RECT &rect, const std::atomic_bool &stopping,
         std::array<std::atomic<uint16_t>, 2> &keypads, std::array<std::atomic<int>, 5> &sliders) {
         BuiltinSubscreen panel(keypads, sliders);
-        return panel.run(main, rect, artwork, stopping);
+        return panel.run(main, rect, stopping);
     }
 }
 #endif

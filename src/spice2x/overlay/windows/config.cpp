@@ -1044,12 +1044,7 @@ namespace overlay::windows {
             auto_subscreen.value = disable_auto ? "1" : "";
             ::Config::getInstance().updateBinding(game, auto_subscreen);
         }
-        auto &backend = options.at(launcher::Options::IIDXLegacyBackend);
-        if (show_subscreen || backend.is_active() || (enabled && board == bio2::Board::BI2X && !disable_auto)) {
-            ImGui::InputText("Subscreen backend DLL (optional)", &backend.value);
-            if (ImGui::IsItemDeactivatedAfterEdit()) {
-                ::Config::getInstance().updateBinding(game, backend);
-            }
+        if (show_subscreen || (enabled && board == bio2::Board::BI2X && !disable_auto)) {
             auto &monitor = options.at(launcher::Options::IIDXLegacyMonitor);
             ImGui::InputText("Subscreen monitor (empty = auto)", &monitor.value);
             if (ImGui::IsItemDeactivatedAfterEdit()) {

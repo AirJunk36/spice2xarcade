@@ -429,9 +429,7 @@ namespace games::iidx {
 
 #endif
 
-        const auto subscreen_artwork = options->at(launcher::Options::IIDXLegacyBackend).value_text();
-        const bool manual_subscreen = !subscreen_artwork.empty() ||
-            options->at(launcher::Options::IIDXLegacySubscreen).value_bool();
+        const bool manual_subscreen = options->at(launcher::Options::IIDXLegacySubscreen).value_bool();
         bio2::Board board;
         // IIDX 25 and 26 have no TDJ subscreen even on a PC with Lightning ROM markers.
         const bool pre_lightning_64bit = avs::game::is_ext(2017122100, 2019101500);
@@ -441,8 +439,7 @@ namespace games::iidx {
             bio2::parse_board(options->at(launcher::Options::IIDXBIO2Board).value_text(), board) &&
             board == bio2::Board::BI2X;
         if ((manual_subscreen || auto_subscreen) && legacy_subscreen_start(
-                options->at(launcher::Options::IIDXLegacyMonitor).value_text(),
-                subscreen_artwork)) {
+                options->at(launcher::Options::IIDXLegacyMonitor).value_text())) {
             overlay::AUTO_SHOW_SUBSCREEN = false;
             overlay::AUTO_SHOW_IOPANEL = false;
         }
