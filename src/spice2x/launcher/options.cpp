@@ -819,16 +819,6 @@ static const std::vector<OptionDefinition> OPTION_DEFINITIONS = std::invoke([]()
         .category = "Game Options",
         .picker = OptionPickerType::Monitor,
     };
-    // Consume old launch-script paths so they are not interpreted as the game executable.
-    c[launcher::Options::RemovedIIDXLegacyBackend] = {
-        .title = "IIDX Legacy Subscreen Backend (Removed)",
-        .name = "iidxlegacybackend",
-        .desc = "Deprecated. The cabinet subscreen is built into Spice.",
-        .type = OptionType::Text,
-        .hidden = true,
-        .game_name = "Beatmania IIDX",
-        .category = "Game Options",
-    };
     c[launcher::Options::IIDXBIO2FW] = {
         .title = "IIDX BIO2 Firmware Update",
         .name =  "iidxbio2fw",
@@ -3732,6 +3722,18 @@ std::unique_ptr<std::vector<Option>> launcher::parse_options(int argc, char *arg
     // positional arguments
     std::vector<std::string> positional;
     for (int i = 1; i < argc; i++) {
+        auto argument = argv[i];
+        while (argument[0] == '-') {
+            argument++;
+        }
+
+        // Do not interpret the retired IIDX subscreen DLL path as the game executable.
+        if (_stricmp(argument, "iidxlegacybackend") == 0) {
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                ++i;
+            }
+            continue;
+        }
 
         // check if enabled
         bool found = false;
@@ -3742,12 +3744,6 @@ std::unique_ptr<std::vector<Option>> launcher::parse_options(int argc, char *arg
             aliases.push_back(definition.name);
             if (!definition.aliases.empty()) {
                 strsplit(definition.aliases, aliases, '/');
-            }
-
-            // ignore leading '-' characters
-            auto argument = argv[i];
-            while (argument[0] == '-') {
-                argument++;
             }
 
             // check aliases

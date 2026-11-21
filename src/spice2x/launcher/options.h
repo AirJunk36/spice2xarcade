@@ -85,7 +85,6 @@ namespace launcher {
             IIDXLegacySubscreen,
             IIDXNoAutoLegacySubscreen,
             IIDXLegacyMonitor,
-            RemovedIIDXLegacyBackend,
             IIDXTDJMode,
             spice2x_IIDXDigitalTTSensitivity,
             IIDXDigitalTTSocd,
